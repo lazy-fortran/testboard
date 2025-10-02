@@ -82,14 +82,16 @@ jobs:
 
       - name: Download testboard
         run: |
-          curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-x86_64
-          chmod +x testboard-x86_64
+          ARCH=$(uname -m)
+          curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-${ARCH}
+          chmod +x testboard-${ARCH}
+          mv testboard-${ARCH} testboard
 
       - name: Generate dashboard
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ./testboard-x86_64 \
+          ./testboard \
             --image-root image-artifacts \
             --output dashboard \
             --branch "${{ github.ref_name }}" \
@@ -110,8 +112,10 @@ Replace `latest` with a specific tag like `v2025.10.03`:
 ```yaml
 - name: Download testboard
   run: |
-    curl -LO https://github.com/lazy-fortran/testboard/releases/download/v2025.10.03/testboard-x86_64
-    chmod +x testboard-x86_64
+    ARCH=$(uname -m)
+    curl -LO https://github.com/lazy-fortran/testboard/releases/download/v2025.10.03/testboard-${ARCH}
+    chmod +x testboard-${ARCH}
+    mv testboard-${ARCH} testboard
 ```
 
 ### Option 3: Build from Source
