@@ -17,3 +17,5 @@ implicit-typing = false
 implicit-external = false
 source-form = "free"
 
+[[preprocess]]
+command = ["python3", "tools/embed_templates.py", "templates", "src/generated/embedded_templates.f90"]

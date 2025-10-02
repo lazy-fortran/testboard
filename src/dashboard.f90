@@ -9,6 +9,7 @@ module dashboard
     use gh_api
     use datetime_utils
     use template_engine
+    use embedded_templates, only: get_embedded_template
     implicit none
     private
 
@@ -134,39 +135,65 @@ contains
         type(dashboard_templates), intent(out) :: templates
         logical :: ok
 
-        templates%branch = load_template(template_path(config, 'branch.html'), ok)
+        templates%branch = fetch_template(config, 'branch.html', ok)
         if (.not. ok) then
             success = .false.
             return
         end if
 
-        templates%diff = load_template(template_path(config, 'diff.html'), ok)
+        templates%diff = fetch_template(config, 'diff.html', ok)
         if (.not. ok) then
             success = .false.
             return
         end if
 
-        templates%overview = load_template(template_path(config, 'overview.html'), ok)
+        templates%overview = fetch_template(config, 'overview.html', ok)
         if (.not. ok) then
             success = .false.
             return
         end if
 
-  templates%overview_row = load_template(template_path(config, 'overview_row.html'), ok)
+        templates%overview_row = fetch_template(config, 'overview_row.html', ok)
         if (.not. ok) then
             success = .false.
             return
         end if
 
-  templates%gallery_item = load_template(template_path(config, 'gallery_item.html'), ok)
+        templates%gallery_item = fetch_template(config, 'gallery_item.html', ok)
         if (.not. ok) then
             success = .false.
             return
         end if
 
-        templates%root = load_template(template_path(config, 'root.html'), ok)
+        templates%root = fetch_template(config, 'root.html', ok)
         success = ok
     end function load_dashboard_templates
+
+    function fetch_template(config, filename, ok) result(content)
+        type(dashboard_config), intent(in) :: config
+        character(len=*), intent(in) :: filename
+        logical, intent(out) :: ok
+        character(len=:), allocatable :: content
+        character(len=:), allocatable :: path
+        logical :: disk_ok
+        character(len=:), allocatable :: embedded
+
+        path = template_path(config, filename)
+        content = load_template(path, disk_ok)
+        if (disk_ok) then
+            ok = .true.
+            return
+        end if
+
+        embedded = get_embedded_template(filename)
+        if (len(embedded) > 0) then
+            content = embedded
+            ok = .true.
+        else
+            content = ''
+            ok = .false.
+        end if
+    end function fetch_template
 
     function template_path(config, filename) result(path)
         type(dashboard_config), intent(in) :: config
@@ -250,6 +277,7 @@ contains
         character(len=:), allocatable :: html, pr_section, diff_summary, diff_nav_link
         type(template_context) :: ctx
         character(len=:), allocatable :: back_link, workflow_label
+        character(len=:), allocatable :: page_title
 
         back_link = compute_back_link(branch%branch_name)
         pr_section = render_pr_section(branch)
@@ -262,9 +290,10 @@ contains
 
         workflow_label = 'run '//trim(branch%run_id)
 
+        page_title = trim(config%project_name)//' – '//trim(branch%branch_name)
+
         call init_template_context(ctx)
-        call add_template_value(ctx, 'page_title', trim(config%project_name)//' – '// &
-                                trim(branch%branch_name))
+        call add_template_value(ctx, 'page_title', html_escape(page_title))
         call add_template_value(ctx, 'project_name', html_escape(config%project_name))
         call add_template_value(ctx, 'branch_name', html_escape(branch%branch_name))
         call add_template_value(ctx, 'back_link', back_link)
@@ -332,13 +361,15 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
         type(string_array), intent(in) :: diff_files
         character(len=*), intent(in) :: template
         character(len=:), allocatable :: html, diff_content
+        character(len=:), allocatable :: page_title
         type(template_context) :: ctx
 
         diff_content = render_gallery(item_template, diff_files, diff_files, .true.)
 
+        page_title = trim(config%project_name)//' – '//trim(branch%branch_name)//' diffs'
+
         call init_template_context(ctx)
-        call add_template_value(ctx, 'page_title', trim(config%project_name)//' – '// &
-                                trim(branch%branch_name)//' diffs')
+        call add_template_value(ctx, 'page_title', html_escape(page_title))
         call add_template_value(ctx, 'project_name', html_escape(config%project_name))
         call add_template_value(ctx, 'branch_name', html_escape(branch%branch_name))
         call add_template_value(ctx, 'base_branch', html_escape(config%base_branch))
@@ -369,7 +400,8 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
         end if
 
         html = templates%overview
-    html = replace_all(html, '{{page_title}}', trim(config%project_name)//' Dashboards')
+        html = replace_all(html, '{{page_title}}', html_escape(trim(config%project_name)// &
+            ' Dashboards'))
         html = replace_all(html, '{{project_name}}', html_escape(config%project_name))
         html = replace_all(html, '{{generated_at}}', html_escape(timestamp))
         html = replace_all(html, '{{rows}}', trim(rows))
