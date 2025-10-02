@@ -117,7 +117,8 @@ contains
         call update_metadata(metadata_file, current_branch, all_branches, n_branches)
 
         ! Clean up closed PRs
-        call cleanup_closed_prs(all_branches, n_branches, config%base_branch, config%repo)
+        call cleanup_closed_prs(all_branches, n_branches, config%base_branch, &
+                               config%repo, test_root)
         call json_write_metadata(metadata_file, all_branches, n_branches)
 
         ! Render overview and root pages
@@ -654,17 +655,21 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
         end do
     end function to_lower_ascii
 
-    subroutine cleanup_closed_prs(branches, n_branches, base_branch, repo)
+    subroutine cleanup_closed_prs(branches, n_branches, base_branch, repo, test_root)
     !! Remove branches with closed/merged PRs from the list
     !! Always keeps the base branch and branches without PRs
+    !! Also deletes the filesystem directories for removed branches
         type(branch_metadata), intent(inout) :: branches(:)
         integer, intent(inout) :: n_branches
         character(len=*), intent(in) :: base_branch
         character(len=*), intent(in) :: repo
+        character(len=*), intent(in) :: test_root
         type(branch_metadata) :: temp_branches(100)
-        integer :: i, new_count
+        integer :: i, new_count, stat
         logical :: is_open, success, should_keep
         character(len=16) :: state
+        character(len=512) :: branch_dir
+        character(len=1024) :: rm_cmd
 
         new_count = 0
 
@@ -691,6 +696,16 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
             if (should_keep) then
                 new_count = new_count + 1
                 temp_branches(new_count) = branches(i)
+            else
+                ! Delete the branch directory from filesystem
+                branch_dir = trim(test_root)//'/'//trim(branches(i)%branch_name)
+                if (directory_exists(branch_dir)) then
+                    write(rm_cmd, '(A)') 'rm -rf "'//trim(branch_dir)//'"'
+                    call execute_command_line(trim(rm_cmd), exitstat=stat)
+                    if (stat == 0) then
+                        print '(A)', 'Cleaned up closed PR directory: '//trim(branch_dir)
+                    end if
+                end if
             end if
         end do
 
