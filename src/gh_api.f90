@@ -5,7 +5,7 @@ module gh_api
   implicit none
   private
 
-  public :: get_pr_info
+  public :: get_pr_info, get_pr_state
 
 contains
 
@@ -95,5 +95,72 @@ contains
       end if
     end do
   end function parse_pr_json
+
+  function get_pr_state(pr_number, repo, state, success) result(is_open)
+    !! Check if a PR is open using gh CLI
+    !! Returns .true. if PR is open, .false. if closed/merged
+    integer, intent(in) :: pr_number
+    character(len=*), intent(in) :: repo
+    character(len=16), intent(out) :: state
+    logical, intent(out) :: success
+    logical :: is_open
+    character(len=1024) :: cmd
+    character(len=256) :: temp_file
+    character(len=512) :: gh_token
+    character(len=64) :: line
+    integer :: unit, stat, ios, pos1, pos2
+
+    success = .false.
+    is_open = .true.  ! Default to open (fail-safe)
+    state = 'unknown'
+
+    ! Check if GH_TOKEN is set
+    call get_environment_variable('GH_TOKEN', gh_token, status=stat)
+    if (stat /= 0 .or. len_trim(gh_token) == 0) then
+      return
+    end if
+
+    ! Create temp file for output
+    temp_file = '/tmp/testboard_pr_state.json'
+
+    ! Call gh CLI to get PR state
+    write(cmd, '(A,I0,A)') 'gh pr view ', pr_number, ' --repo "' // trim(repo) // &
+                           '" --json state --jq ".state" > "' // trim(temp_file) // '" 2>/dev/null'
+
+    call execute_command_line(trim(cmd), exitstat=stat)
+
+    if (stat /= 0) return
+
+    ! Read state from file
+    open(newunit=unit, file=temp_file, status='old', action='read', iostat=ios)
+    if (ios /= 0) return
+
+    read(unit, '(A)', iostat=ios) line
+    if (ios == 0) then
+      ! Remove quotes and newlines
+      line = adjustl(trim(line))
+      if (line(1:1) == '"') then
+        pos1 = 2
+        pos2 = index(line(2:), '"')
+        if (pos2 > 0) then
+          state = trim(line(pos1:pos1+pos2-2))
+        else
+          state = trim(line(2:))
+        end if
+      else
+        state = trim(line)
+      end if
+
+      ! Check if state is OPEN
+      is_open = (trim(state) == 'OPEN')
+      success = .true.
+    end if
+
+    close(unit)
+
+    ! Clean up
+    open(newunit=unit, file=temp_file, status='old')
+    close(unit, status='delete')
+  end function get_pr_state
 
 end module gh_api

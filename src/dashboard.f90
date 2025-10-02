@@ -6,7 +6,7 @@ module dashboard
     use file_utils, only: create_directory, copy_file, find_image_files, &
          read_text_file, compute_file_crc32, directory_exists, file_exists
     use json_utils
-    use gh_api
+    use gh_api, only: get_pr_info, get_pr_state
     use datetime_utils
     use template_engine
     use embedded_templates, only: get_embedded_template
@@ -115,6 +115,10 @@ contains
         ! Update metadata
         metadata_file = trim(test_root)//'/branches.json'
         call update_metadata(metadata_file, current_branch, all_branches, n_branches)
+
+        ! Clean up closed PRs
+        call cleanup_closed_prs(all_branches, n_branches, config%base_branch, config%repo)
+        call json_write_metadata(metadata_file, all_branches, n_branches)
 
         ! Render overview and root pages
         overview_html = render_overview_page(config, all_branches, n_branches, &
@@ -649,6 +653,53 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
             end if
         end do
     end function to_lower_ascii
+
+    subroutine cleanup_closed_prs(branches, n_branches, base_branch, repo)
+    !! Remove branches with closed/merged PRs from the list
+    !! Always keeps the base branch and branches without PRs
+        type(branch_metadata), intent(inout) :: branches(:)
+        integer, intent(inout) :: n_branches
+        character(len=*), intent(in) :: base_branch
+        character(len=*), intent(in) :: repo
+        type(branch_metadata) :: temp_branches(100)
+        integer :: i, new_count
+        logical :: is_open, success, should_keep
+        character(len=16) :: state
+
+        new_count = 0
+
+        do i = 1, n_branches
+            should_keep = .false.
+
+            ! Always keep the base branch
+            if (trim(branches(i)%branch_name) == trim(base_branch)) then
+                should_keep = .true.
+            ! Keep branches without PR info (direct pushes)
+            else if (branches(i)%pr_number <= 0) then
+                should_keep = .true.
+            else
+                ! Check if PR is still open
+                is_open = get_pr_state(branches(i)%pr_number, repo, state, success)
+                if (.not. success) then
+                    ! Fail-safe: keep branch if API call fails
+                    should_keep = .true.
+                else if (is_open) then
+                    should_keep = .true.
+                end if
+            end if
+
+            if (should_keep) then
+                new_count = new_count + 1
+                temp_branches(new_count) = branches(i)
+            end if
+        end do
+
+        ! Copy filtered branches back
+        do i = 1, new_count
+            branches(i) = temp_branches(i)
+        end do
+        n_branches = new_count
+    end subroutine cleanup_closed_prs
 
     subroutine update_metadata(filepath, current, all_branches, n_branches)
     !! Update or create metadata file
