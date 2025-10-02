@@ -11,15 +11,27 @@ permissions:
 jobs:
   build-alpine-static:
     runs-on: ubuntu-latest
-    name: Build static binary on Alpine
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            platform: linux/amd64
+            fpm_url: https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
+          - arch: aarch64
+            platform: linux/arm64
+            fpm_url: https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-aarch64-gcc-12
+    name: Build static binary for ${{ matrix.arch }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU for cross-platform builds
+        uses: docker/setup-qemu-action@v3
+
       - name: Build static binary in Alpine container
         run: |
-          docker run --rm \
+          docker run --rm --platform ${{ matrix.platform }} \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             alpine:latest \
@@ -30,9 +42,9 @@ jobs:
               apk add --no-cache gfortran make curl wget git
 
               # Install fpm
-              wget -q https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
-              chmod +x fpm-0.12.0-linux-x86_64-gcc-12
-              mv fpm-0.12.0-linux-x86_64-gcc-12 /usr/local/bin/fpm
+              wget -q ${{ matrix.fpm_url }}
+              chmod +x fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12
+              mv fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12 /usr/local/bin/fpm
 
               # Generate embedded templates
               make templates
@@ -47,15 +59,39 @@ jobs:
               }
 
               # Copy binary to predictable location
-              cp build/gfortran_*/app/testboard testboard-static
+              cp build/gfortran_*/app/testboard testboard-static-${{ matrix.arch }}
 
               # Test the binary runs
-              ./testboard-static --help || echo "Binary help check completed"
+              ./testboard-static-${{ matrix.arch }} --help || echo "Binary help check completed"
             '
 
       - name: Generate checksum
         run: |
-          sha256sum testboard-static > testboard-static.sha256
+          sha256sum testboard-static-${{ matrix.arch }} > testboard-static-${{ matrix.arch }}.sha256
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: testboard-static-${{ matrix.arch }}-linux
+          path: |
+            testboard-static-${{ matrix.arch }}
+            testboard-static-${{ matrix.arch }}.sha256
+
+  create-release:
+    needs: build-alpine-static
+    runs-on: ubuntu-latest
+    name: Create GitHub Release
+
+    steps:
+      - name: Download x86_64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: testboard-static-x86_64-linux
+
+      - name: Download aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: testboard-static-aarch64-linux
 
       - name: Create Release
         env:
@@ -71,31 +107,37 @@ jobs:
           cat > release_notes.md << EOF
           # TestBoard ${VERSION}
 
-          ## Static Binary for x86_64 Linux
+          ## Static Binaries for Linux
 
-          This release includes a fully static binary built on Alpine Linux (musl libc).
+          This release includes fully static binaries built on Alpine Linux (musl libc) for multiple architectures.
 
           **Build Information:**
           - Alpine Version: ${ALPINE_VERSION}
           - Compiler: gfortran (musl-based)
           - Linking: Static (libgfortran, libgcc, libm, libquadmath)
 
+          **Available Architectures:**
+          - x86_64 (amd64)
+          - aarch64 (arm64)
+
           **Download:**
-          - Binary: \`testboard-static\`
-          - Checksum: \`testboard-static.sha256\`
 
-          **Usage:**
+          For x86_64:
           \`\`\`bash
-          # Download the binary
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-x86_64
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-x86_64.sha256
+          sha256sum -c testboard-static-x86_64.sha256
+          chmod +x testboard-static-x86_64
+          ./testboard-static-x86_64 --help
+          \`\`\`
 
-          # Verify checksum
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static.sha256
-          sha256sum -c testboard-static.sha256
-
-          # Make executable and run
-          chmod +x testboard-static
-          ./testboard-static --help
+          For aarch64:
+          \`\`\`bash
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-aarch64
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-aarch64.sha256
+          sha256sum -c testboard-static-aarch64.sha256
+          chmod +x testboard-static-aarch64
+          ./testboard-static-aarch64 --help
           \`\`\`
 
           **Building from source:**
@@ -109,17 +151,11 @@ jobs:
           \`\`\`
           EOF
 
-          # Create release with binary
+          # Create release with binaries
           gh release create "${{ github.ref_name }}" \
-            testboard-static \
-            testboard-static.sha256 \
+            testboard-static-x86_64 \
+            testboard-static-x86_64.sha256 \
+            testboard-static-aarch64 \
+            testboard-static-aarch64.sha256 \
             --title "Release ${{ github.ref_name }}" \
             --notes-file release_notes.md
-
-      - name: Upload binary as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: testboard-static-x86_64-linux
-          path: |
-            testboard-static
-            testboard-static.sha256
