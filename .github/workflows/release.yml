@@ -38,10 +38,19 @@ jobs:
               # Install build dependencies
               apk add --no-cache gfortran make curl wget git
 
-              # Install fpm
-              wget -q ${{ matrix.fpm_url }}
-              chmod +x fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12
-              mv fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12 /usr/local/bin/fpm
+              # Install fpm (download binary for x86_64, build from source for aarch64)
+              if [ "${{ matrix.arch }}" = "x86_64" ]; then
+                wget -q ${{ matrix.fpm_url }}
+                chmod +x fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12
+                mv fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12 /usr/local/bin/fpm
+              else
+                # Build fpm from source for aarch64
+                git clone --depth 1 --branch v0.12.0 https://github.com/fortran-lang/fpm.git fpm-src
+                cd fpm-src
+                ./install.sh
+                cd ..
+                rm -rf fpm-src
+              fi
 
               # Generate embedded templates
               make templates
