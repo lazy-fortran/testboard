@@ -26,3 +26,5 @@ Thumbs.db
 # Temporary files
 *.tmp
 /tmp/
+# Generated Fortran sources (embedded templates)
+src/generated/
