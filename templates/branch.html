@@ -42,9 +42,9 @@
 </nav>
 <h1>{{project_name}} – {{branch_name}}</h1>
 <div class="meta">
-  <p><strong>Branch:</strong> {{branch_name}}</p>
+  <p><strong>Reference:</strong> {{branch_name}}</p>
   {{pr_section}}
-  <p><strong>Commit:</strong> <code>{{commit_sha}}</code></p>
+  <p><strong>Commit:</strong> <code><a href="{{commit_url}}">{{commit_sha}}</a></code></p>
   <p><strong>Workflow run:</strong> <a href="{{workflow_url}}">{{workflow_label}}</a></p>
   <p><strong>Generated:</strong> {{generated_at}}</p>
   {{diff_summary}}
