@@ -4,7 +4,7 @@ module dashboard
     use string_utils, only: string_array, append_string, join_path, str, starts_with, &
          contains_string, clear_string_array, replace_all
     use file_utils, only: create_directory, copy_file, find_image_files, &
-         read_text_file, compute_sha256, directory_exists, file_exists
+         read_text_file, compute_file_crc32, directory_exists, file_exists
     use json_utils
     use gh_api
     use datetime_utils
@@ -456,7 +456,7 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
         type(string_array), intent(inout) :: diffs
         integer :: i
         character(len=:), allocatable :: rel_path, current_path, base_path
-        character(len=:), allocatable :: current_hash, base_hash
+        character(len=8) :: current_hash, base_hash
         logical :: ok_current, ok_base
 
         call clear_string_array(diffs)
@@ -464,7 +464,7 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
         do i = 1, files%count
             rel_path = trim(files%items(i))
             current_path = trim(current_root)//'/'//rel_path
-            call compute_sha256(current_path, current_hash, ok_current)
+            current_hash = compute_file_crc32(current_path, ok_current)
             if (.not. ok_current) then
                 call append_string(diffs, rel_path)
                 cycle
@@ -476,7 +476,7 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
                 cycle
             end if
 
-            call compute_sha256(base_path, base_hash, ok_base)
+            base_hash = compute_file_crc32(base_path, ok_base)
             if (.not. ok_base) then
                 call append_string(diffs, rel_path)
                 cycle
