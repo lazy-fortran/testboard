@@ -124,7 +124,7 @@ contains
         print *, 'Optional:'
         print *, '  --image-root DIR       Image dir (default: image-artifacts)'
         print *, '  --output DIR           Output directory (default: dashboard)'
-        print *, '  --project-name NAME    Project name (default: Test Dashboard)'
+        print *, '  --project-name NAME    Project name (default: testboard)'
         print *, '  --github-pages-url URL Base URL for GitHub Pages'
         print *, '  --help, -h             Show this help'
     end subroutine print_help

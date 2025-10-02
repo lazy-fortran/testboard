@@ -204,8 +204,6 @@ contains
         body = '<nav class="site-nav">'
         body = body//'<a href="'//trim(back_href)//'" class="back-link">'// &
                'All branches</a>'
-        body = body//'<a href="https://github.com/lazy-fortran/testboard/"'// &
-               ' class="repo-link">GitHub</a>'
         body = body//'</nav>'
         body = body//'<h1>testboard – '// &
                html_escape(branch%branch_name)//'</h1>'
@@ -222,9 +220,10 @@ contains
         body = body//trim(branch%run_id)//'</a></p>'
         body = body//'<p><strong>Generated:</strong> '// &
                html_escape(branch%timestamp)//'</p>'
-        body = body//'<p><a class="repo-link" href="https://github.com/lazy-fortran/testboard/">'// &
-               'testboard repository</a></p>'
         body = body//'</div>'//gallery
+        body = body//'<footer class="site-footer">testboard · <a href="'// &
+               'https://github.com/lazy-fortran/testboard/">'// &
+               'https://github.com/lazy-fortran/testboard/</a></footer>'
 
         call append_line(extra_style, '.site-nav { display: flex; gap: 1rem; }')
         call append_line(extra_style, new_line('a'))
@@ -233,6 +232,8 @@ contains
         call append_line(extra_style, '.site-nav { margin-bottom: 1rem; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, '.site-nav a { font-weight: 600; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-brand { font-weight: 700; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, '.meta { margin-bottom: 1.5rem; }')
         call append_line(extra_style, new_line('a'))
@@ -283,9 +284,17 @@ contains
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img:hover { transform: scale(1.02); }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.back-link { display: inline-block; }')
+        call append_line(extra_style, '.back-link { font-weight: 600; }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.back-link { margin-bottom: 1rem; }')
+        call append_line(extra_style, '.site-footer { margin-top: 2rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer { font-size: 0.85rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer { color: #586069; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer a { color: inherit; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer a:hover { text-decoration: underline; }')
 
         html = build_html_page(title, body, extra_style)
     end function build_branch_page
@@ -311,10 +320,7 @@ contains
             rows = '<tr><td colspan="5">No branch dashboards published yet.</td></tr>'
         end if
 
-        body = '<nav class="site-nav">'
-        body = body//'<a href="https://github.com/lazy-fortran/testboard/"'// &
-               ' class="repo-link">GitHub</a>'
-        body = body//'</nav>'
+        body = '<nav class="site-nav"><span class="site-brand">testboard</span></nav>'
         body = body//'<h1>testboard dashboards</h1>'
         body = body//'<p class="subtitle">Automated test artifacts for all '
         body = body//'branches and pull requests</p>'
@@ -323,6 +329,9 @@ contains
         body = body//'<th>Branch</th><th>Updated (UTC)</th><th>Commit</th>'// &
                '<th>Workflow</th><th>Status</th>'
         body = body//'</tr></thead><tbody>'//rows//'</tbody></table>'
+        body = body//'<footer class="site-footer">testboard · <a href="'// &
+               'https://github.com/lazy-fortran/testboard/">'// &
+               'https://github.com/lazy-fortran/testboard/</a></footer>'
 
         extra_style = ''
         call append_line(extra_style, '.site-nav { display: flex; gap: 1rem; }')
@@ -332,6 +341,8 @@ contains
         call append_line(extra_style, '.site-nav { margin-bottom: 1rem; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, '.site-nav a { font-weight: 600; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-brand { font-weight: 700; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'h1 { margin-bottom: 0.5rem; }')
         call append_line(extra_style, new_line('a'))
@@ -354,6 +365,16 @@ contains
         call append_line(extra_style, 'th { background-color: #f5f5f5; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'th { font-weight: 600; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer { margin-top: 2rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer { font-size: 0.85rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer { color: #586069; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer a { color: inherit; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-footer a:hover { text-decoration: underline; }')
 
         html = build_html_page(title, body, extra_style)
     end function build_overview_page
@@ -502,7 +523,7 @@ contains
                'momentarily.</p>'
         body = body//'<p>Generated: '//html_escape(timestamp)//'</p>'
         body = body//'<p><a href="https://github.com/lazy-fortran/testboard/">'// &
-               'testboard repository</a></p>'
+               'https://github.com/lazy-fortran/testboard/</a></p>'
 
         html = '<!DOCTYPE html>'//new_line('a')// &
                '<html lang="en">'//new_line('a')// &

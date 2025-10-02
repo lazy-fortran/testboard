@@ -106,7 +106,7 @@ jobs:
 | `--commit SHA` | **Yes** | Commit SHA |
 | `--run-id ID` | **Yes** | CI run identifier |
 | `--repo OWNER/REPO` | **Yes** | Repository in `owner/repo` format |
-| `--project-name NAME` | No | Project display name (default: `Test Dashboard`) |
+| `--project-name NAME` | No | Project display name (default: `testboard`) |
 | `--github-pages-url URL` | No | Base URL for GitHub Pages |
 | `--help, -h` | No | Show help message |
 
