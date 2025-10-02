@@ -1,11 +1,14 @@
 module file_utils
   !! File and directory utilities
-    use string_utils, only: ends_with, join_path, string_array, append_string
+    use, intrinsic :: iso_fortran_env, only: iostat_end
+    use string_utils, only: ends_with, join_path, string_array, append_string, &
+                            clear_string_array
     implicit none
     private
 
     public :: copy_file, create_directory, directory_exists, file_exists
     public :: find_files, find_image_files, remove_directory
+    public :: read_text_file, compute_sha256
 
 contains
 
@@ -49,6 +52,7 @@ contains
     !! Check if file exists
         character(len=*), intent(in) :: path
         logical :: exists
+
         inquire (file=trim(path), exist=exists)
     end function file_exists
 
@@ -71,29 +75,23 @@ contains
         character(len=1024) :: cmd, temp_file, line
         integer :: unit, stat, ios
 
-        ! Create temporary file for results
         temp_file = '/tmp/testboard_find_'//trim(str_random())//'.txt'
 
         write (cmd, '(A)') 'find "'//trim(root_dir)//'" -type f -name "'// &
             trim(pattern)//'" > "'//trim(temp_file)//'" 2>/dev/null'
         call execute_command_line(trim(cmd), exitstat=stat)
 
-        ! Read results
-        files%count = 0
+        call clear_string_array(files)
         if (file_exists(temp_file)) then
             open (newunit=unit, file=temp_file, status='old', action='read', iostat=ios)
             if (ios == 0) then
                 do
                     read (unit, '(A)', iostat=ios) line
                     if (ios /= 0) exit
-                    if (len_trim(line) > 0) then
-                        call append_string(files, trim(line))
-                    end if
+                    if (len_trim(line) > 0) call append_string(files, trim(line))
                 end do
                 close (unit)
             end if
-
-            ! Clean up
             open (newunit=unit, file=temp_file, status='old')
             close (unit, status='delete')
         end if
@@ -109,20 +107,12 @@ contains
         type(string_array) :: jpe_files, jpe_files_upper
         integer :: i
 
-        if (allocated(files%items)) then
-            deallocate (files%items)
-        end if
-        files%count = 0
+        call clear_string_array(files)
 
-        ! Find PNG files (case-insensitive)
         call find_files(root_dir, '*.png', png_files)
         call find_files(root_dir, '*.PNG', png_files_upper)
-
-        ! Find JPG files (case-insensitive)
         call find_files(root_dir, '*.jpg', jpg_files)
         call find_files(root_dir, '*.JPG', jpg_files_upper)
-
-        ! Find JPEG files (case-insensitive, including .jpe)
         call find_files(root_dir, '*.jpeg', jpeg_files)
         call find_files(root_dir, '*.JPEG', jpeg_files_upper)
         call find_files(root_dir, '*.jpe', jpe_files)
@@ -153,6 +143,123 @@ contains
             call append_string(files, jpe_files_upper%items(i))
         end do
     end subroutine find_image_files
+
+    function read_text_file(path, success) result(content)
+    !! Read full file contents as a single string preserving newlines
+        character(len=*), intent(in) :: path
+        logical, intent(out) :: success
+        character(len=:), allocatable :: content
+        integer :: unit, ios
+        character(len=2048) :: line
+        logical :: exists, first_line
+
+        content = ''
+        success = .false.
+        inquire (file=trim(path), exist=exists)
+        if (.not. exists) return
+
+        open (newunit=unit, file=trim(path), status='old', action='read', iostat=ios)
+        if (ios /= 0) return
+
+        first_line = .true.
+        do
+            read (unit, '(A)', iostat=ios) line
+            if (ios /= 0) exit
+            if (first_line) then
+                content = trim(line)
+                first_line = .false.
+            else
+                content = content//new_line('a')//trim(line)
+            end if
+        end do
+        close (unit)
+
+        if (ios == 0 .or. ios == iostat_end) success = .true.
+    end function read_text_file
+
+    subroutine compute_sha256(path, hash, success)
+    !! Compute SHA-256 checksum using available command-line tools
+        character(len=*), intent(in) :: path
+        character(len=:), allocatable, intent(out) :: hash
+        logical, intent(out) :: success
+        character(len=1024) :: temp_file
+        character(len=2048) :: line
+        integer :: unit, ios
+
+        temp_file = '/tmp/testboard_sha_'//trim(str_random())//'.txt'
+
+        success = run_command('shasum -a 256', temp_file)
+        if (.not. success) success = run_command('sha256sum', temp_file)
+        if (.not. success) then
+            hash = ''
+            call cleanup_temp()
+            return
+        end if
+
+        open (newunit=unit, file=temp_file, status='old', action='read', iostat=ios)
+        if (ios /= 0) then
+            hash = ''
+            success = .false.
+            call cleanup_temp()
+            return
+        end if
+
+        read (unit, '(A)', iostat=ios) line
+        close (unit)
+        if (ios /= 0) then
+            hash = ''
+            success = .false.
+            call cleanup_temp()
+            return
+        end if
+
+        call extract_hash(line, hash, success)
+        call cleanup_temp()
+
+    contains
+
+        logical function run_command(tool, outfile) result(ok)
+            character(len=*), intent(in) :: tool, outfile
+            character(len=1024) :: cmd
+            integer :: stat
+
+write (cmd, '(A)') trim(tool)//' "'//trim(path)//'" > "'//trim(outfile)//'" 2>/dev/null'
+            call execute_command_line(trim(cmd), exitstat=stat)
+            ok = (stat == 0)
+        end function run_command
+
+        subroutine extract_hash(source_line, value, ok)
+            character(len=*), intent(in) :: source_line
+            character(len=:), allocatable, intent(out) :: value
+            logical, intent(out) :: ok
+            integer :: space_pos
+            character(len=:), allocatable :: token
+
+            token = adjustl(source_line)
+            space_pos = index(token, ' ')
+            if (space_pos == 0) space_pos = index(token, char(9))
+            if (space_pos > 0) token = token(1:space_pos - 1)
+
+            if (len_trim(token) < 64) then
+                value = ''
+                ok = .false.
+            else
+                allocate (character(len=len_trim(token)) :: value)
+                value = trim(token)
+                ok = .true.
+            end if
+        end subroutine extract_hash
+
+        subroutine cleanup_temp()
+            integer :: del_unit
+
+            if (file_exists(temp_file)) then
+       open (newunit=del_unit, file=temp_file, status='old', action='write', iostat=ios)
+                if (ios == 0) close (del_unit, status='delete')
+            end if
+        end subroutine cleanup_temp
+
+    end subroutine compute_sha256
 
     function str_random() result(s)
     !! Generate random string for temp files

@@ -37,6 +37,7 @@ program test_integration
     call test_dashboard_generation()
     call test_multiple_branches()
     call test_nested_branch_gallery()
+    call test_diff_detection()
 
     print *, ''
     print *, 'Integration Tests: ', num_passed, '/', num_tests, ' passed'
@@ -70,6 +71,7 @@ contains
 
         if (success .and. &
             file_exists(trim(config%output_dir)//'/test/test-branch/index.html') .and. &
+            file_exists(trim(config%output_dir)//'/test/test-branch/diff.html') .and. &
             file_exists(trim(config%output_dir)//'/test/index.html') .and. &
             file_exists(trim(config%output_dir)//'/index.html')) then
             num_passed = num_passed + 1
@@ -79,6 +81,8 @@ contains
             print *, '  Success: ', success
             print *, '  Branch page: ', &
                 file_exists(trim(config%output_dir)//'/test/test-branch/index.html')
+            print *, '  Diff page: ', &
+                file_exists(trim(config%output_dir)//'/test/test-branch/diff.html')
             print *, '  Overview page: ', &
                 file_exists(trim(config%output_dir)//'/test/index.html')
             print *, '  Root page: ', &
@@ -119,7 +123,9 @@ contains
         ! Check both branches exist
         if (success .and. &
             file_exists(trim(config%output_dir)//'/test/main/index.html') .and. &
+            file_exists(trim(config%output_dir)//'/test/main/diff.html') .and. &
             file_exists(trim(config%output_dir)//'/test/feature/index.html') .and. &
+            file_exists(trim(config%output_dir)//'/test/feature/diff.html') .and. &
             file_exists(trim(config%output_dir)//'/test/branches.json')) then
             num_passed = num_passed + 1
             print *, '[PASS] multiple_branches: both branches exist'
@@ -136,7 +142,7 @@ contains
         type(dashboard_config) :: config
         character(len=:), allocatable :: branch_dir, branch_file
         character(len=:), allocatable :: fancy_file, basic_file
-        logical :: run_success, fancy_exists, basic_exists, link_ok, style_ok
+      logical :: run_success, fancy_exists, basic_exists, link_ok, style_ok, diff_nav_ok
         integer :: unit, ios
         character(len=1024) :: line
 
@@ -170,24 +176,22 @@ contains
 
         link_ok = .false.
         style_ok = .false.
+        diff_nav_ok = .false.
         open (newunit=unit, file=branch_file, status='old', action='read', iostat=ios)
         if (ios == 0) then
             do
                 read (unit, '(A)', iostat=ios) line
                 if (ios /= 0) exit
-                if (index(line, 'href="../../index.html"') > 0) then
-                    link_ok = .true.
-                end if
-                if (index(line, 'img { width: min(100%, 320px); }') > 0) then
-                    style_ok = .true.
-                end if
-                if (link_ok .and. style_ok) exit
+                if (index(line, 'href="../../index.html"') > 0) link_ok = .true.
+                if (index(line, 'class="diff-link"') > 0) diff_nav_ok = .true.
+                if (index(line, 'gallery-item diff') > 0) style_ok = .true.
+                if (link_ok .and. style_ok .and. diff_nav_ok) exit
             end do
             close (unit)
         end if
 
         if (run_success .and. fancy_exists .and. basic_exists .and. link_ok .and. &
-            style_ok) then
+            style_ok .and. diff_nav_ok) then
             num_passed = num_passed + 1
             print *, '[PASS] nested_branch_gallery: preserves fancy outputs and link'
         else
@@ -195,13 +199,107 @@ contains
             print *, '  Success: ', run_success
             print *, '  Fancy exists: ', fancy_exists
             print *, '  Basic exists: ', basic_exists
-            print *, '  Link ok: ', link_ok
-            print *, '  Style ok: ', style_ok
+            print *, '  Back link ok: ', link_ok
+            print *, '  Diff nav ok: ', diff_nav_ok
+            print *, '  Diff highlight ok: ', style_ok
         end if
 
         call remove_directory(config%image_root, run_success)
         call remove_directory(config%output_dir, run_success)
     end subroutine test_nested_branch_gallery
+
+    subroutine test_diff_detection()
+        type(dashboard_config) :: config
+    character(len=:), allocatable :: feature_dir, diff_file, gallery_file, overview_file
+        logical :: run_success, diff_exists, highlight_found, diff_link_found
+        logical :: diff_page_has_image, diff_count_ok
+        integer :: unit, ios
+        character(len=1024) :: line
+
+        num_tests = num_tests + 1
+
+        config%image_root = 'test_artifacts'
+        config%output_dir = 'test_output'
+        config%repo = 'test-org/test-repo'
+        config%project_name = 'Test Project'
+        config%base_branch = 'main'
+
+        call create_directory(config%image_root, run_success)
+
+        config%branch_name = 'main'
+        config%commit_sha = 'aaa111'
+        config%run_id = '44444'
+        call write_png_fixture(trim(config%image_root)//'/chart.png', basic_png_bytes)
+        call generate_dashboard(config, run_success)
+
+        config%branch_name = 'feature-diff'
+        config%commit_sha = 'bbb222'
+        config%run_id = '55555'
+        call write_png_fixture(trim(config%image_root)//'/chart.png', fancy_png_bytes)
+        call generate_dashboard(config, run_success)
+
+        feature_dir = trim(config%output_dir)//'/test/feature-diff'
+        diff_file = trim(feature_dir)//'/diff.html'
+        gallery_file = trim(feature_dir)//'/index.html'
+        overview_file = trim(config%output_dir)//'/test/index.html'
+
+        diff_exists = file_exists(diff_file)
+        highlight_found = .false.
+        diff_link_found = .false.
+        diff_page_has_image = .false.
+        diff_count_ok = .false.
+
+        open (newunit=unit, file=gallery_file, status='old', action='read', iostat=ios)
+        if (ios == 0) then
+            do
+                read (unit, '(A)', iostat=ios) line
+                if (ios /= 0) exit
+                if (index(line, 'gallery-item diff') > 0) highlight_found = .true.
+            end do
+            close (unit)
+        end if
+
+        open (newunit=unit, file=overview_file, status='old', action='read', iostat=ios)
+        if (ios == 0) then
+            do
+                read (unit, '(A)', iostat=ios) line
+                if (ios /= 0) exit
+                if (index(line, 'feature-diff/diff.html') > 0) then
+                    diff_link_found = .true.
+                    if (index(line, 'diff</a> (1)') > 0) diff_count_ok = .true.
+                end if
+            end do
+            close (unit)
+        end if
+
+        open (newunit=unit, file=diff_file, status='old', action='read', iostat=ios)
+        if (ios == 0) then
+            do
+                read (unit, '(A)', iostat=ios) line
+                if (ios /= 0) exit
+                if (index(line, '<img') > 0) then
+                    diff_page_has_image = .true.
+                    exit
+                end if
+            end do
+            close (unit)
+        end if
+
+        if (diff_exists .and. highlight_found .and. diff_link_found .and. diff_page_has_image .and. diff_count_ok) then
+            num_passed = num_passed + 1
+            print *, '[PASS] diff_detection: highlights differing artifacts'
+        else
+            print *, '[FAIL] diff_detection: highlights differing artifacts'
+            print *, '  diff page exists: ', diff_exists
+            print *, '  gallery highlights diff: ', highlight_found
+            print *, '  overview diff link: ', diff_link_found
+            print *, '  diff page shows image: ', diff_page_has_image
+            print *, '  diff count shown: ', diff_count_ok
+        end if
+
+        call remove_directory(config%image_root, run_success)
+        call remove_directory(config%output_dir, run_success)
+    end subroutine test_diff_detection
 
     subroutine write_png_fixture(path, data)
         character(len=*), intent(in) :: path

@@ -31,6 +31,16 @@ program testboard_app
             call get_command_argument(i, value)
             config%branch_name = trim(value)
 
+        case ('--base-branch')
+            i = i + 1
+            call get_command_argument(i, value)
+            config%base_branch = trim(value)
+
+        case ('--template-root')
+            i = i + 1
+            call get_command_argument(i, value)
+            config%template_root = trim(value)
+
         case ('--commit')
             i = i + 1
             call get_command_argument(i, value)
@@ -98,6 +108,8 @@ program testboard_app
     print *, 'Generating dashboard for branch: ', trim(config%branch_name)
     print *, 'Project name: ', trim(config%project_name)
     print *, 'Output directory: ', trim(config%output_dir)
+    print *, 'Base branch: ', trim(config%base_branch)
+    print *, 'Template root: ', trim(config%template_root)
 
     call generate_dashboard(config, success)
 
@@ -124,6 +136,9 @@ contains
         print *, 'Optional:'
         print *, '  --image-root DIR       Image dir (default: image-artifacts)'
         print *, '  --output DIR           Output directory (default: dashboard)'
+        print *, '  --base-branch NAME    Base branch for diffs (default: main)'
+        print *, '  --template-root DIR   Directory containing HTML templates'
+        print *, '                         (default: templates)'
         print *, '  --project-name NAME    Project name (default: testboard)'
         print *, '  --github-pages-url URL Base URL for GitHub Pages'
         print *, '  --help, -h             Show this help'

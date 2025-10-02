@@ -1,11 +1,14 @@
 module dashboard
-  !! Main dashboard generation logic
-    use html_utils
-    use string_utils
-    use file_utils
+  !! Main dashboard generation logic using template files
+    use html_utils, only: html_escape
+    use string_utils, only: string_array, append_string, join_path, str, starts_with, &
+         contains_string, clear_string_array, replace_all
+    use file_utils, only: create_directory, copy_file, find_image_files, &
+         read_text_file, compute_sha256, directory_exists, file_exists
     use json_utils
     use gh_api
     use datetime_utils
+    use template_engine
     implicit none
     private
 
@@ -15,12 +18,23 @@ module dashboard
         character(len=512) :: image_root = 'image-artifacts'
         character(len=512) :: output_dir = 'dashboard'
         character(len=256) :: branch_name = ''
+        character(len=256) :: base_branch = 'main'
         character(len=64) :: commit_sha = ''
         character(len=64) :: run_id = ''
         character(len=256) :: repo = ''
         character(len=256) :: project_name = 'testboard'
         character(len=512) :: github_pages_url = ''
+        character(len=512) :: template_root = 'templates'
     end type dashboard_config
+
+    type :: dashboard_templates
+        character(len=:), allocatable :: branch
+        character(len=:), allocatable :: diff
+        character(len=:), allocatable :: overview
+        character(len=:), allocatable :: overview_row
+        character(len=:), allocatable :: gallery_item
+        character(len=:), allocatable :: root
+    end type dashboard_templates
 
 contains
 
@@ -28,21 +42,30 @@ contains
     !! Generate complete dashboard from configuration
         type(dashboard_config), intent(in) :: config
         logical, intent(out) :: success
-        type(string_array) :: image_files, gallery_files
+        type(string_array) :: image_files, gallery_files, diff_files
         type(branch_metadata) :: current_branch, all_branches(100)
+        type(dashboard_templates) :: templates
+        type(template_context) :: ctx
         integer :: n_branches
-        character(len=512) :: test_root, branch_path, images_path
-        character(len=512) :: metadata_file, branch_html_file, index_file
-        character(len=:), allocatable :: gallery_html, branch_html, overview_html
+        character(len=512) :: test_root, branch_path, images_path, base_images_path
+       character(len=512) :: metadata_file, branch_html_file, diff_html_file, index_file
         character(len=25) :: timestamp
-        logical :: stat
+        character(len=:), allocatable :: gallery_html, branch_html, diff_html
+        character(len=:), allocatable :: overview_html, root_html
+        logical :: stat, ok, same_branch
 
         success = .false.
+
+        if (.not. load_dashboard_templates(config, templates)) then
+  print *, 'Error: failed to load dashboard templates from ', trim(config%template_root)
+            return
+        end if
 
         ! Create output directories
         test_root = trim(config%output_dir)//'/test'
         branch_path = trim(test_root)//'/'//trim(config%branch_name)
         images_path = trim(branch_path)//'/images'
+        base_images_path = trim(test_root)//'/'//trim(config%base_branch)//'/images'
 
         call create_directory(images_path, stat)
         if (.not. stat) then
@@ -52,8 +75,13 @@ contains
 
         ! Copy image files (PNG, JPG, JPEG)
         call find_image_files(config%image_root, image_files)
-        call copy_image_files(config%image_root, images_path, image_files, &
-                              gallery_files)
+       call copy_image_files(config%image_root, images_path, image_files, gallery_files)
+
+        call clear_string_array(diff_files)
+        same_branch = (trim(config%branch_name) == trim(config%base_branch))
+        if (.not. same_branch) then
+       call compute_diff_files(images_path, base_images_path, gallery_files, diff_files)
+        end if
 
         ! Get current timestamp and PR info
         timestamp = get_iso8601_timestamp()
@@ -63,33 +91,402 @@ contains
         current_branch%run_id = config%run_id
         current_branch%repo = config%repo
         current_branch%has_pngs = (gallery_files%count > 0)
+        current_branch%diff_count = diff_files%count
 
-        call get_pr_info(config%branch_name, config%repo, current_branch, stat)
+        call get_pr_info(config%branch_name, config%repo, current_branch, ok)
 
-        ! Generate branch page
-        gallery_html = build_gallery(gallery_files)
-        branch_html = build_branch_page(config, current_branch, gallery_html)
+        ! Render branch gallery and pages
+        gallery_html = render_gallery(templates%gallery_item, &
+                                      gallery_files, diff_files, .false.)
+        branch_html = render_branch_page(config, current_branch, gallery_html, &
+                                         diff_files%count, templates%branch)
+        diff_html = render_diff_page(config, current_branch, templates%gallery_item, &
+                                     diff_files, templates%diff)
 
         branch_html_file = trim(branch_path)//'/index.html'
         call write_file(branch_html_file, branch_html, stat)
+        if (.not. stat) return
+
+        diff_html_file = trim(branch_path)//'/diff.html'
+        call write_file(diff_html_file, diff_html, stat)
         if (.not. stat) return
 
         ! Update metadata
         metadata_file = trim(test_root)//'/branches.json'
         call update_metadata(metadata_file, current_branch, all_branches, n_branches)
 
-        ! Generate overview page
-        overview_html = build_overview_page(config, all_branches, n_branches, timestamp)
+        ! Render overview and root pages
+        overview_html = render_overview_page(config, all_branches, n_branches, &
+                                             timestamp, templates)
         index_file = trim(test_root)//'/index.html'
         call write_file(index_file, overview_html, stat)
         if (.not. stat) return
 
-        ! Generate root redirect
-        call generate_root_redirect(config, timestamp, stat)
+        root_html = render_root_redirect(config, timestamp, templates%root)
+        call write_file(trim(config%output_dir)//'/index.html', root_html, stat)
         if (.not. stat) return
 
         success = .true.
     end subroutine generate_dashboard
+
+    logical function load_dashboard_templates(config, templates) result(success)
+        type(dashboard_config), intent(in) :: config
+        type(dashboard_templates), intent(out) :: templates
+        logical :: ok
+
+        templates%branch = load_template(template_path(config, 'branch.html'), ok)
+        if (.not. ok) then
+            success = .false.
+            return
+        end if
+
+        templates%diff = load_template(template_path(config, 'diff.html'), ok)
+        if (.not. ok) then
+            success = .false.
+            return
+        end if
+
+        templates%overview = load_template(template_path(config, 'overview.html'), ok)
+        if (.not. ok) then
+            success = .false.
+            return
+        end if
+
+  templates%overview_row = load_template(template_path(config, 'overview_row.html'), ok)
+        if (.not. ok) then
+            success = .false.
+            return
+        end if
+
+  templates%gallery_item = load_template(template_path(config, 'gallery_item.html'), ok)
+        if (.not. ok) then
+            success = .false.
+            return
+        end if
+
+        templates%root = load_template(template_path(config, 'root.html'), ok)
+        success = ok
+    end function load_dashboard_templates
+
+    function template_path(config, filename) result(path)
+        type(dashboard_config), intent(in) :: config
+        character(len=*), intent(in) :: filename
+        character(len=:), allocatable :: path
+        character(len=512) :: parts(2)
+
+        parts(1) = trim(config%template_root)
+        parts(2) = trim(filename)
+        path = join_path(parts)
+    end function template_path
+
+    function render_gallery(item_template, files, diff_files, diff_only) result(html)
+        character(len=*), intent(in) :: item_template
+        type(string_array), intent(in) :: files
+        type(string_array), intent(in) :: diff_files
+        logical, intent(in) :: diff_only
+        character(len=:), allocatable :: html
+        integer :: i
+        character(len=:), allocatable :: rel_path
+        logical :: is_diff_item
+
+        if (diff_only) then
+            if (diff_files%count == 0) then
+             html = '<p class="diff-empty">No differing artifacts compared to base.</p>'
+                return
+            end if
+        else
+            if (files%count == 0) then
+                html = '<p>No image outputs were produced for this run.</p>'
+                return
+            end if
+        end if
+
+        html = '<div class="gallery">'//new_line('a')
+        if (diff_only) then
+            do i = 1, diff_files%count
+                rel_path = trim(diff_files%items(i))
+        html = html//render_gallery_item(item_template, rel_path, .true.)//new_line('a')
+            end do
+        else
+            do i = 1, files%count
+                rel_path = trim(files%items(i))
+                is_diff_item = contains_string(diff_files, rel_path)
+  html = html//render_gallery_item(item_template, rel_path, is_diff_item)//new_line('a')
+            end do
+        end if
+        html = html//'</div>'
+    end function render_gallery
+
+    function render_gallery_item(template, rel_path, is_diff) result(html)
+        character(len=*), intent(in) :: template
+        character(len=*), intent(in) :: rel_path
+        logical, intent(in) :: is_diff
+        character(len=:), allocatable :: html
+        type(template_context) :: ctx
+        character(len=:), allocatable :: figure_class
+
+        call init_template_context(ctx)
+        call add_template_value(ctx, 'image_href', 'images/'//trim(rel_path))
+        call add_template_value(ctx, 'image_src', 'images/'//trim(rel_path))
+        call add_template_value(ctx, 'alt_text', html_escape(rel_path))
+        call add_template_value(ctx, 'caption', html_escape(rel_path))
+        if (is_diff) then
+            figure_class = 'diff'
+        else
+            figure_class = ''
+        end if
+        call add_template_value(ctx, 'figure_class', figure_class)
+
+        html = render_template(template, ctx)
+    end function render_gallery_item
+
+    function render_branch_page(config, branch, gallery_html, diff_count, template) &
+        result(html)
+        type(dashboard_config), intent(in) :: config
+        type(branch_metadata), intent(in) :: branch
+        character(len=*), intent(in) :: gallery_html
+        integer, intent(in) :: diff_count
+        character(len=*), intent(in) :: template
+        character(len=:), allocatable :: html, pr_section, diff_summary, diff_nav_link
+        type(template_context) :: ctx
+        character(len=:), allocatable :: back_link, workflow_label
+
+        back_link = compute_back_link(branch%branch_name)
+        pr_section = render_pr_section(branch)
+     diff_summary = render_diff_summary(config%base_branch, branch%has_pngs, diff_count)
+        if (branch%has_pngs) then
+            diff_nav_link = '<a href="diff.html" class="diff-link">diff view</a>'
+        else
+            diff_nav_link = ''
+        end if
+
+        workflow_label = 'run '//trim(branch%run_id)
+
+        call init_template_context(ctx)
+        call add_template_value(ctx, 'page_title', trim(config%project_name)//' – '// &
+                                trim(branch%branch_name))
+        call add_template_value(ctx, 'project_name', html_escape(config%project_name))
+        call add_template_value(ctx, 'branch_name', html_escape(branch%branch_name))
+        call add_template_value(ctx, 'back_link', back_link)
+        call add_template_value(ctx, 'pr_section', pr_section)
+        call add_template_value(ctx, 'commit_sha', html_escape(branch%commit))
+        call add_template_value(ctx, 'workflow_url', 'https://github.com/'// &
+                               trim(config%repo)//'/actions/runs/'//trim(branch%run_id))
+        call add_template_value(ctx, 'workflow_label', workflow_label)
+        call add_template_value(ctx, 'generated_at', html_escape(branch%timestamp))
+        call add_template_value(ctx, 'diff_summary', diff_summary)
+        call add_template_value(ctx, 'diff_nav_link', diff_nav_link)
+        call add_template_value(ctx, 'gallery', gallery_html)
+
+        html = render_template(template, ctx)
+    end function render_branch_page
+
+    function render_pr_section(branch) result(section)
+        type(branch_metadata), intent(in) :: branch
+        character(len=:), allocatable :: section
+        character(len=2048) :: buffer
+
+        if (branch%pr_number <= 0) then
+            section = ''
+            return
+        end if
+
+        write (buffer, '(A)') '<p><strong>Pull Request:</strong> <a href="'// &
+            trim(branch%pr_url)//'">#'//trim(str(branch%pr_number))//' '// &
+            trim(html_escape(branch%pr_title))//'</a>'
+        if (branch%pr_draft) then
+            buffer = trim(buffer)//' <span style="'// &
+                     'background:#6a737d;color:white;padding:2px 6px;"'// &
+                     'border-radius:3px;font-size:0.85em">DRAFT</span>'
+        end if
+        section = trim(buffer)//'</p>'
+    end function render_pr_section
+
+    function render_diff_summary(base_branch, has_pngs, diff_count) result(summary)
+        character(len=*), intent(in) :: base_branch
+        logical, intent(in) :: has_pngs
+        integer, intent(in) :: diff_count
+        character(len=:), allocatable :: summary
+
+        if (.not. has_pngs) then
+            summary = ''
+            return
+        end if
+
+        if (diff_count > 0) then
+            summary = '<p class="diff-summary"><strong>'//trim(str(diff_count))// &
+               ' differing artifacts</strong> vs '//html_escape(base_branch)//'</p>'// &
+new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view</a></p>'
+        else
+            summary = '<p class="diff-summary no-diff">No differences vs '// &
+                      html_escape(base_branch)//'</p>'//new_line('a')// &
+               '<p class="diff-summary-link"><a href="diff.html">Open diff view</a></p>'
+        end if
+    end function render_diff_summary
+
+    function render_diff_page(config, branch, item_template, diff_files, template) &
+        result(html)
+        type(dashboard_config), intent(in) :: config
+        type(branch_metadata), intent(in) :: branch
+        character(len=*), intent(in) :: item_template
+        type(string_array), intent(in) :: diff_files
+        character(len=*), intent(in) :: template
+        character(len=:), allocatable :: html, diff_content
+        type(template_context) :: ctx
+
+        diff_content = render_gallery(item_template, diff_files, diff_files, .true.)
+
+        call init_template_context(ctx)
+        call add_template_value(ctx, 'page_title', trim(config%project_name)//' – '// &
+                                trim(branch%branch_name)//' diffs')
+        call add_template_value(ctx, 'project_name', html_escape(config%project_name))
+        call add_template_value(ctx, 'branch_name', html_escape(branch%branch_name))
+        call add_template_value(ctx, 'base_branch', html_escape(config%base_branch))
+        call add_template_value(ctx, 'back_link', compute_back_link(branch%branch_name))
+        call add_template_value(ctx, 'diff_content', diff_content)
+
+        html = render_template(template, ctx)
+    end function render_diff_page
+
+    function render_overview_page(config, branches, n_branches, timestamp, templates) &
+        result(html)
+        type(dashboard_config), intent(in) :: config
+        type(branch_metadata), intent(in) :: branches(:)
+        integer, intent(in) :: n_branches
+        character(len=*), intent(in) :: timestamp
+        type(dashboard_templates), intent(in) :: templates
+        character(len=:), allocatable :: html, rows
+        integer :: i
+
+        rows = ''
+        if (n_branches == 0) then
+            rows = '<tr><td colspan="6">No branch dashboards published yet.</td></tr>'
+        else
+            do i = 1, n_branches
+                rows = rows//render_overview_row(config, branches(i), &
+                                                 templates%overview_row)//new_line('a')
+            end do
+        end if
+
+        html = templates%overview
+    html = replace_all(html, '{{page_title}}', trim(config%project_name)//' Dashboards')
+        html = replace_all(html, '{{project_name}}', html_escape(config%project_name))
+        html = replace_all(html, '{{generated_at}}', html_escape(timestamp))
+        html = replace_all(html, '{{rows}}', trim(rows))
+    end function render_overview_page
+
+    function render_overview_row(config, branch, template) result(row)
+        type(dashboard_config), intent(in) :: config
+        type(branch_metadata), intent(in) :: branch
+        character(len=*), intent(in) :: template
+        character(len=:), allocatable :: row, pr_suffix, diff_status
+        type(template_context) :: ctx
+        character(len=:), allocatable :: workflow_label
+        character(len=:), allocatable :: artifact_status
+
+        if (branch%pr_number > 0) then
+            pr_suffix = ' (<a href="'//trim(branch%pr_url)//'">#'// &
+                        trim(str(branch%pr_number))//'</a>)'
+        else
+            pr_suffix = ''
+        end if
+
+        if (branch%has_pngs) then
+            workflow_label = 'run '//trim(branch%run_id)
+            if (branch%diff_count >= 0) then
+         diff_status = '<a href="'//trim(branch%branch_name)//'/diff.html">diff</a>'// &
+                              ' ('//trim(str(branch%diff_count))//')'
+            else
+             diff_status = '<a href="'//trim(branch%branch_name)//'/diff.html">diff</a>'
+            end if
+            artifact_status = 'available'
+        else
+            workflow_label = 'run '//trim(branch%run_id)
+            diff_status = '&mdash;'
+            artifact_status = 'no artifacts'
+        end if
+
+        call init_template_context(ctx)
+        call add_template_value(ctx, 'branch_href', trim(branch%branch_name)//'/')
+        call add_template_value(ctx, 'branch_name', html_escape(branch%branch_name))
+        call add_template_value(ctx, 'pr_suffix', pr_suffix)
+        call add_template_value(ctx, 'updated', html_escape(branch%timestamp))
+        call add_template_value(ctx, 'commit', html_escape(branch%commit(1:min(12, &
+                                                             len_trim(branch%commit)))))
+        call add_template_value(ctx, 'workflow_url', 'https://github.com/'// &
+                               trim(config%repo)//'/actions/runs/'//trim(branch%run_id))
+        call add_template_value(ctx, 'workflow_label', workflow_label)
+        call add_template_value(ctx, 'diff_status', diff_status)
+        call add_template_value(ctx, 'artifact_status', html_escape(artifact_status))
+
+        row = render_template(template, ctx)
+    end function render_overview_row
+
+    function render_root_redirect(config, timestamp, template) result(html)
+        type(dashboard_config), intent(in) :: config
+        character(len=*), intent(in) :: timestamp
+        character(len=*), intent(in) :: template
+        character(len=:), allocatable :: html
+        type(template_context) :: ctx
+
+        call init_template_context(ctx)
+        call add_template_value(ctx, 'project_name', html_escape(config%project_name))
+        call add_template_value(ctx, 'generated_at', html_escape(timestamp))
+        call add_template_value(ctx, 'test_index', './test/')
+
+        html = render_template(template, ctx)
+    end function render_root_redirect
+
+    function compute_back_link(branch_name) result(back)
+        character(len=*), intent(in) :: branch_name
+        character(len=:), allocatable :: back
+        integer :: depth, idx, name_len
+
+        depth = 1
+        name_len = len_trim(branch_name)
+        do idx = 1, name_len
+            if (branch_name(idx:idx) == '/') depth = depth + 1
+        end do
+        back = repeat('../', depth)//'index.html'
+    end function compute_back_link
+
+    subroutine compute_diff_files(current_root, base_root, files, diffs)
+        character(len=*), intent(in) :: current_root, base_root
+        type(string_array), intent(in) :: files
+        type(string_array), intent(inout) :: diffs
+        integer :: i
+        character(len=:), allocatable :: rel_path, current_path, base_path
+        character(len=:), allocatable :: current_hash, base_hash
+        logical :: ok_current, ok_base
+
+        call clear_string_array(diffs)
+
+        do i = 1, files%count
+            rel_path = trim(files%items(i))
+            current_path = trim(current_root)//'/'//rel_path
+            call compute_sha256(current_path, current_hash, ok_current)
+            if (.not. ok_current) then
+                call append_string(diffs, rel_path)
+                cycle
+            end if
+
+            base_path = trim(base_root)//'/'//rel_path
+            if (.not. file_exists(base_path)) then
+                call append_string(diffs, rel_path)
+                cycle
+            end if
+
+            call compute_sha256(base_path, base_hash, ok_base)
+            if (.not. ok_base) then
+                call append_string(diffs, rel_path)
+                cycle
+            end if
+
+            if (trim(current_hash) /= trim(base_hash)) then
+                call append_string(diffs, rel_path)
+            end if
+        end do
+    end subroutine compute_diff_files
 
     subroutine copy_image_files(src_root, dest_root, files, copied)
     !! Copy image files while preserving structure and filtering unwanted assets
@@ -100,10 +497,7 @@ contains
         logical :: stat
         character(len=:), allocatable :: rel_path, dest_path, dest_dir
 
-        if (allocated(copied%items)) then
-            deallocate (copied%items)
-        end if
-        copied%count = 0
+        call clear_string_array(copied)
 
         do i = 1, files%count
             rel_path = trim(get_relative_path(files%items(i), src_root))
@@ -145,251 +539,6 @@ contains
             name = trim(path)
         end if
     end function basename
-
-    function build_gallery(files) result(html)
-        !! Build HTML gallery from file list
-        type(string_array), intent(in) :: files
-        character(len=:), allocatable :: html
-        integer :: i
-        character(len=:), allocatable :: rel_path, img_src
-
-        if (files%count == 0) then
-            html = '<p>No image outputs were produced for this run.</p>'
-            return
-        end if
-
-        html = '<div class="gallery">'
-        do i = 1, files%count
-            rel_path = trim(files%items(i))
-            img_src = 'images/'//rel_path
-            html = html//build_gallery_item(rel_path, img_src)
-        end do
-        html = html//'</div>'
-    end function build_gallery
-
-    function build_branch_page(config, branch, gallery) result(html)
-        !! Build HTML page for a specific branch
-        type(dashboard_config), intent(in) :: config
-        type(branch_metadata), intent(in) :: branch
-        character(len=*), intent(in) :: gallery
-        character(len=:), allocatable :: html, body, title, pr_section, extra_style
-        character(len=:), allocatable :: back_href
-        character(len=2048) :: buffer
-        integer :: depth, idx, name_len
-
-        title = trim(config%project_name)//' – '//trim(branch%branch_name)
-
-        ! Build PR section if available
-        pr_section = ''
-        if (branch%pr_number > 0) then
-            write (buffer, '(A)') '<p><strong>Pull Request:</strong> <a href="'// &
-                trim(branch%pr_url)//'">#'//trim(str(branch%pr_number))//' '// &
-                trim(html_escape(branch%pr_title))//'</a>'
-            if (branch%pr_draft) then
-                buffer = trim(buffer)//' <span style="background:#6a737d;color:white;'
-                buffer = buffer//'padding:2px 6px;border-radius:3px;'
-                buffer = buffer//'font-size:0.85em">DRAFT</span>'
-            end if
-            pr_section = trim(buffer)//'</p>'
-        end if
-
-        depth = 1
-        name_len = len_trim(branch%branch_name)
-        do idx = 1, name_len
-            if (branch%branch_name(idx:idx) == '/') depth = depth + 1
-        end do
-        back_href = repeat('../', depth)//'index.html'
-
-        ! Build body content
-        body = '<nav class="site-nav">'
-        body = body//'<a href="'//trim(back_href)//'" class="back-link">'// &
-               'All branches</a>'
-        body = body//'</nav>'
-        body = body//'<h1>testboard – '// &
-               html_escape(branch%branch_name)//'</h1>'
-        body = body//'<div class="meta">'
-        body = body//'<p><strong>Branch:</strong> '// &
-               html_escape(branch%branch_name)//'</p>'
-        body = body//trim(pr_section)
-        body = body//'<p><strong>Commit:</strong> <code>'// &
-               html_escape(branch%commit)//'</code></p>'
-        body = body//'<p><strong>Workflow run:</strong> <a href="'
-        body = body//'https://github.com/'
-        body = body//trim(config%repo)//'/actions/runs/'
-        body = body//trim(branch%run_id)//'">'
-        body = body//trim(branch%run_id)//'</a></p>'
-        body = body//'<p><strong>Generated:</strong> '// &
-               html_escape(branch%timestamp)//'</p>'
-        body = body//'</div>'//gallery
-        body = body//'<footer class="site-footer">testboard · <a href="'// &
-               'https://github.com/lazy-fortran/testboard/">'// &
-               'https://github.com/lazy-fortran/testboard/</a></footer>'
-
-        call append_line(extra_style, '.site-nav { display: flex; gap: 1rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-nav { align-items: center; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-nav { margin-bottom: 1rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-nav a { font-weight: 600; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-brand { font-weight: 700; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.meta { margin-bottom: 1.5rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.gallery { display: grid; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'grid-template-columns: repeat(auto-fit, '// &
-                         'minmax(240px, 1fr));')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.gallery { justify-items: center; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'gap: 1.5rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figure { margin: 0; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figure { display: flex; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figure { flex-direction: column; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figure { align-items: center; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figure a { display: block; cursor: pointer; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figcaption { margin-top: 0.5rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figcaption { font-size: 0.9rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'figcaption { word-break: break-word; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { width: min(100%, 320px); }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { height: auto; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { max-height: 320px; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { object-fit: contain; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { image-rendering: pixelated; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { border: 1px solid #ccd; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { transition: box-shadow 0.2s,')
-        call append_line(extra_style, ' transform 0.2s; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img:hover { box-shadow: 0 4px 8px')
-        call append_line(extra_style, ' rgba(0,0,0,0.2); }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img:hover { transform: scale(1.02); }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.back-link { font-weight: 600; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer { margin-top: 2rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer { font-size: 0.85rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer { color: #586069; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer a { color: inherit; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer a:hover { text-decoration: underline; }')
-
-        html = build_html_page(title, body, extra_style)
-    end function build_branch_page
-
-    function build_overview_page(config, branches, n, timestamp) result(html)
-    !! Build overview page with all branches
-        type(dashboard_config), intent(in) :: config
-        type(branch_metadata), intent(in) :: branches(:)
-        integer, intent(in) :: n
-        character(len=*), intent(in) :: timestamp
-        character(len=:), allocatable :: html, body, title, rows, extra_style
-        integer :: i
-        character(len=2048) :: row
-
-        title = trim(config%project_name)//' Dashboards'
-
-        rows = ''
-        do i = 1, n
-            rows = rows//build_branch_row(branches(i), config)
-        end do
-
-        if (n == 0) then
-            rows = '<tr><td colspan="5">No branch dashboards published yet.</td></tr>'
-        end if
-
-        body = '<nav class="site-nav"><span class="site-brand">testboard</span></nav>'
-        body = body//'<h1>testboard dashboards</h1>'
-        body = body//'<p class="subtitle">Automated test artifacts for all '
-        body = body//'branches and pull requests</p>'
-        body = body//'<p>Generated: '//html_escape(timestamp)//'</p>'
-        body = body//'<table><thead><tr>'
-        body = body//'<th>Branch</th><th>Updated (UTC)</th><th>Commit</th>'// &
-               '<th>Workflow</th><th>Status</th>'
-        body = body//'</tr></thead><tbody>'//rows//'</tbody></table>'
-        body = body//'<footer class="site-footer">testboard · <a href="'// &
-               'https://github.com/lazy-fortran/testboard/">'// &
-               'https://github.com/lazy-fortran/testboard/</a></footer>'
-
-        extra_style = ''
-        call append_line(extra_style, '.site-nav { display: flex; gap: 1rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-nav { align-items: center; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-nav { margin-bottom: 1rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-nav a { font-weight: 600; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-brand { font-weight: 700; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'h1 { margin-bottom: 0.5rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.subtitle { color: #586069; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.subtitle { margin-bottom: 1rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'table { border-collapse: collapse; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'table { width: 100%; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'table { margin-top: 1rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'th, td { border: 1px solid #ccc; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'th, td { padding: 0.5rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'th, td { text-align: left; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'th { background-color: #f5f5f5; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'th { font-weight: 600; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer { margin-top: 2rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer { font-size: 0.85rem; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer { color: #586069; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer a { color: inherit; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, '.site-footer a:hover { text-decoration: underline; }')
-
-        html = build_html_page(title, body, extra_style)
-    end function build_overview_page
-
-    subroutine append_line(target, text)
-    !! Append text to an allocatable deferred-length string
-        character(len=:), allocatable, intent(inout) :: target
-        character(len=*), intent(in) :: text
-
-        if (.not. allocated(target)) then
-            target = text
-        else
-            target = target//text
-        end if
-    end subroutine append_line
 
     function get_relative_path(path, root) result(relative)
     !! Compute relative path of file with respect to root directory
@@ -446,12 +595,6 @@ contains
         character(len=:), allocatable :: lowered
 
         lowered = trim(to_lower_ascii(path))
-
-        if (len_trim(lowered) == 0) then
-            skip = .true.
-            return
-        end if
-
         skip = .false.
     end function skip_basic_image
 
@@ -471,76 +614,6 @@ contains
         end do
     end function to_lower_ascii
 
-    function build_branch_row(branch, config) result(row)
-    !! Build table row for branch overview
-        type(branch_metadata), intent(in) :: branch
-        type(dashboard_config), intent(in) :: config
-        character(len=:), allocatable :: row
-        character(len=2048) :: buffer
-        character(len=512) :: branch_display, workflow_cell, status
-
-        branch_display = html_escape(branch%branch_name)
-        if (branch%pr_number > 0) then
-            buffer = trim(branch_display)//' (<a href="'
-            buffer = buffer//trim(branch%pr_url)//'">#'
-            buffer = buffer//trim(str(branch%pr_number))//'</a>)'
-            branch_display = trim(buffer)
-        end if
-
-        workflow_cell = '<a href="https://github.com/'//trim(config%repo)// &
-                        '/actions/runs/'//trim(branch%run_id)//'">run '// &
-                        trim(branch%run_id)//'</a>'
-
-        if (branch%has_pngs) then
-            status = 'available'
-        else
-            status = 'no artifacts'
-        end if
-
-        row = '<tr>'
-        row = row//'<td><a href="'//trim(branch%branch_name)//'/">'// &
-              trim(branch_display)//'</a></td>'
-        row = row//'<td>'//html_escape(branch%timestamp)//'</td>'
-        row = row//'<td><code>'// &
-              html_escape(branch%commit(1:min(12, len_trim(branch%commit))))// &
-              '</code></td>'
-        row = row//'<td>'//trim(workflow_cell)//'</td>'
-        row = row//'<td>'//html_escape(status)//'</td>'
-        row = row//'</tr>'
-    end function build_branch_row
-
-    subroutine generate_root_redirect(config, timestamp, success)
-    !! Generate root index.html with redirect
-        type(dashboard_config), intent(in) :: config
-        character(len=*), intent(in) :: timestamp
-        logical, intent(out) :: success
-        character(len=:), allocatable :: html, body
-        character(len=512) :: filepath
-
-        body = '<h1>'//html_escape(config%project_name)//'</h1>'
-        body = body//'<p>This site hosts automatically generated test dashboards.</p>'
-        body = body//'<p>You will be redirected to <a href="./test/">/test/</a> '// &
-               'momentarily.</p>'
-        body = body//'<p>Generated: '//html_escape(timestamp)//'</p>'
-        body = body//'<p><a href="https://github.com/lazy-fortran/testboard/">'// &
-               'https://github.com/lazy-fortran/testboard/</a></p>'
-
-        html = '<!DOCTYPE html>'//new_line('a')// &
-               '<html lang="en">'//new_line('a')// &
-               '<head>'//new_line('a')// &
-               '  <meta charset="utf-8">'//new_line('a')// &
-               '  <title>'//html_escape(config%project_name)//'</title>'// &
-               new_line('a')// &
-               '  <meta http-equiv="refresh" content="0; url=./test/" />'// &
-               new_line('a')// &
-               '</head>'//new_line('a')// &
-               '<body>'//body//'</body>'//new_line('a')// &
-               '</html>'
-
-        filepath = trim(config%output_dir)//'/index.html'
-        call write_file(filepath, html, success)
-    end subroutine generate_root_redirect
-
     subroutine update_metadata(filepath, current, all_branches, n_branches)
     !! Update or create metadata file
         character(len=*), intent(in) :: filepath
@@ -550,10 +623,8 @@ contains
         integer :: i
         logical :: found
 
-        ! Read existing metadata
         call json_read_metadata(filepath, all_branches, n_branches)
 
-        ! Update or append current branch
         found = .false.
         do i = 1, n_branches
             if (trim(all_branches(i)%branch_name) == trim(current%branch_name)) then
@@ -568,7 +639,6 @@ contains
             all_branches(n_branches) = current
         end if
 
-        ! Write updated metadata
         call json_write_metadata(filepath, all_branches, n_branches)
     end subroutine update_metadata
 
@@ -578,8 +648,7 @@ contains
         logical, intent(out) :: success
         integer :: unit, ios
 
-        open (newunit=unit, file=trim(filepath), status='replace', &
-              action='write', iostat=ios)
+  open (newunit=unit, file=trim(filepath), status='replace', action='write', iostat=ios)
         if (ios /= 0) then
             success = .false.
             return
