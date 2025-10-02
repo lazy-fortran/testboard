@@ -1,0 +1,151 @@
+# Example GitHub Actions workflow for using testboard
+# Copy this to .github/workflows/ in your project and customize
+
+name: Tests with Dashboard
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Replace this with your actual test command
+      - name: Run tests that generate plots
+        run: |
+          # Example: make test
+          # Example: pytest --plots-dir=plots/
+          # Example: fpm test
+          echo "Run your tests here"
+
+      # Upload PNG artifacts from wherever your tests create them
+      - name: Upload test plots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-plots
+          path: |
+            build/test/**/*.png
+            plots/**/*.png
+            output/**/*.png
+          if-no-files-found: warn
+
+  dashboard:
+    name: Generate test dashboard
+    needs: test
+    if: ${{ needs.test.result == 'success' || needs.test.result == 'failure' }}
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/fortran-lang/fpm:latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout testboard
+        uses: actions/checkout@v4
+        with:
+          repository: lazy-fortran/testboard
+          path: testboard
+
+      - name: Build testboard
+        run: |
+          cd testboard
+          fpm build
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: test-plots
+          path: png-artifacts
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y wget rsync curl
+          # Install gh CLI
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+            dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | \
+            tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          apt-get update
+          apt-get install -y gh
+
+      - name: Restore previous dashboard
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          rm -rf dashboard
+          mkdir -p dashboard
+
+          # Change this URL to match your GitHub Pages URL
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/test/index.html"
+
+          if curl --silent --head --fail "$PAGES_URL" >/dev/null 2>&1; then
+            echo "Existing site found, restoring..."
+            BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/test/"
+            wget --quiet --recursive --no-parent --no-host-directories --cut-dirs=2 \
+              --directory-prefix dashboard_existing "$BASE_URL" 2>&1 || true
+            if [ -d dashboard_existing ] && [ -n "$(ls -A dashboard_existing)" ]; then
+              echo "Restoring $(find dashboard_existing -type f | wc -l) files"
+              rsync -a dashboard_existing/ dashboard/
+            fi
+            rm -rf dashboard_existing
+          else
+            echo "No existing site found, starting fresh"
+          fi
+
+      - name: Generate dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          testboard/build/gfortran_*/app/testboard \
+            --png-root png-artifacts \
+            --output dashboard \
+            --branch "${{ github.ref_name }}" \
+            --commit "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --project-name "My Project"  # CUSTOMIZE THIS
+
+      - name: Configure Pages
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/configure-pages@v5
+
+      - name: Upload dashboard artifact
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dashboard'
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'push'
+    needs: dashboard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
