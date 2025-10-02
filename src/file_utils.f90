@@ -1,12 +1,11 @@
 module file_utils
   !! File and directory utilities
-    use, intrinsic :: iso_fortran_env, only: int32, int64
     use string_utils, only: ends_with, join_path, string_array, append_string
     implicit none
     private
 
     public :: copy_file, create_directory, directory_exists, file_exists
-    public :: find_files, find_image_files, remove_directory, is_tiny_image
+    public :: find_files, find_image_files, remove_directory
 
 contains
 
@@ -154,108 +153,6 @@ contains
             call append_string(files, jpe_files_upper%items(i))
         end do
     end subroutine find_image_files
-
-    logical function is_tiny_image(path) result(tiny)
-    !! Determine if an image should be treated as too small to keep
-        character(len=*), intent(in) :: path
-        integer :: unit, ios
-        character(len=8) :: signature
-        character(len=4) :: chunk_len_bytes, chunk_type
-        character(len=4) :: width_bytes, height_bytes
-        integer(kind=int32) :: width32, height32
-        integer(kind=int64) :: size_bytes
-
-        tiny = .false.
-
-        if (.not. file_exists(path)) then
-            tiny = .true.
-            return
-        end if
-
-        inquire (file=trim(path), size=size_bytes)
-
-        open (newunit=unit, file=trim(path), status='old', access='stream', &
-              form='unformatted', action='read', iostat=ios)
-        if (ios /= 0) then
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        read (unit, iostat=ios) signature
-        if (ios /= 0) then
-            close (unit)
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        if (signature /= char(137)//'PNG'//char(13)//char(10)//char(26)//char(10)) then
-            close (unit)
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        read (unit, iostat=ios) chunk_len_bytes
-        if (ios /= 0) then
-            close (unit)
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        read (unit, iostat=ios) chunk_type
-        if (ios /= 0) then
-            close (unit)
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        if (chunk_type /= 'IHDR') then
-            close (unit)
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        read (unit, iostat=ios) width_bytes
-        if (ios /= 0) then
-            close (unit)
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        read (unit, iostat=ios) height_bytes
-        close (unit)
-        if (ios /= 0) then
-            tiny = (size_bytes <= 128_int64)
-            return
-        end if
-
-        width32 = uint32_from_bytes(width_bytes)
-        height32 = uint32_from_bytes(height_bytes)
-
-        if (width32 <= 0_int32 .or. height32 <= 0_int32) then
-            tiny = .true.
-            return
-        end if
-
-        if (int(width32, int64)*int(height32, int64) <= 256_int64) then
-            tiny = .true.
-        else
-            tiny = .false.
-        end if
-    end function is_tiny_image
-
-    pure function uint32_from_bytes(bytes) result(value)
-    !! Convert 4-byte big-endian sequence to int32
-        character(len=4), intent(in) :: bytes
-        integer(kind=int32) :: value
-        integer :: b1, b2, b3, b4
-
-        b1 = iachar(bytes(1:1))
-        b2 = iachar(bytes(2:2))
-        b3 = iachar(bytes(3:3))
-        b4 = iachar(bytes(4:4))
-
-        value = int(shiftl(b1, 24) + shiftl(b2, 16) + shiftl(b3, 8) + b4, int32)
-    end function uint32_from_bytes
 
     function str_random() result(s)
     !! Generate random string for temp files

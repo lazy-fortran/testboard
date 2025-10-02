@@ -110,7 +110,6 @@ contains
 
             if (len_trim(rel_path) == 0) cycle
             if (skip_basic_image(rel_path)) cycle
-            if (is_tiny_image(trim(files%items(i)))) cycle
 
             dest_path = trim(dest_root)//'/'//trim(rel_path)
             dest_dir = get_parent_directory(dest_path)
@@ -240,7 +239,9 @@ contains
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'figcaption { word-break: break-word; }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { width: 100%; height: auto; }')
+        call append_line(extra_style, 'img { max-width: 100%; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, 'img { width: auto; height: auto; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img { border: 1px solid #ccd; }')
         call append_line(extra_style, new_line('a'))
@@ -394,27 +395,7 @@ contains
             return
         end if
 
-        if (starts_with(lowered, 'basic/')) then
-            skip = .true.
-            return
-        end if
-
-        if (index(lowered, '/basic/') > 0) then
-            skip = .true.
-            return
-        end if
-
-        if (starts_with(lowered, 'basic-')) then
-            skip = .true.
-            return
-        end if
-
-        if (index(lowered, '/basic-') > 0) then
-            skip = .true.
-            return
-        end if
-
-        if (lowered == 'basic.png') then
+        if (index(lowered, '.ds_store') > 0) then
             skip = .true.
             return
         end if

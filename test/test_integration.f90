@@ -136,7 +136,7 @@ contains
         type(dashboard_config) :: config
         character(len=:), allocatable :: branch_dir, branch_file
         character(len=:), allocatable :: fancy_file, basic_file
-        logical :: run_success, fancy_exists, basic_exists, link_ok
+        logical :: run_success, fancy_exists, basic_exists, link_ok, style_ok
         integer :: unit, ios
         character(len=1024) :: line
 
@@ -169,6 +169,7 @@ contains
         basic_exists = file_exists(basic_file)
 
         link_ok = .false.
+        style_ok = .false.
         open (newunit=unit, file=branch_file, status='old', action='read', iostat=ios)
         if (ios == 0) then
             do
@@ -176,13 +177,17 @@ contains
                 if (ios /= 0) exit
                 if (index(line, 'href="../../index.html"') > 0) then
                     link_ok = .true.
-                    exit
                 end if
+                if (index(line, 'img { max-width: 100%; }') > 0) then
+                    style_ok = .true.
+                end if
+                if (link_ok .and. style_ok) exit
             end do
             close (unit)
         end if
 
-        if (run_success .and. fancy_exists .and. .not. basic_exists .and. link_ok) then
+        if (run_success .and. fancy_exists .and. basic_exists .and. link_ok .and. &
+            style_ok) then
             num_passed = num_passed + 1
             print *, '[PASS] nested_branch_gallery: preserves fancy outputs and link'
         else
@@ -191,6 +196,7 @@ contains
             print *, '  Fancy exists: ', fancy_exists
             print *, '  Basic exists: ', basic_exists
             print *, '  Link ok: ', link_ok
+            print *, '  Style ok: ', style_ok
         end if
 
         call remove_directory(config%image_root, run_success)
