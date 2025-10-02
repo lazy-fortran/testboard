@@ -299,6 +299,8 @@ contains
         call add_template_value(ctx, 'back_link', back_link)
         call add_template_value(ctx, 'pr_section', pr_section)
         call add_template_value(ctx, 'commit_sha', html_escape(branch%commit))
+        call add_template_value(ctx, 'commit_url', 'https://github.com/'// &
+                               trim(config%repo)//'/commit/'//trim(branch%commit))
         call add_template_value(ctx, 'workflow_url', 'https://github.com/'// &
                                trim(config%repo)//'/actions/runs/'//trim(branch%run_id))
         call add_template_value(ctx, 'workflow_label', workflow_label)
@@ -445,6 +447,8 @@ new_line('a')//'<p class="diff-summary-link"><a href="diff.html">Open diff view<
         call add_template_value(ctx, 'updated', html_escape(branch%timestamp))
         call add_template_value(ctx, 'commit', html_escape(branch%commit(1:min(12, &
                                                              len_trim(branch%commit)))))
+        call add_template_value(ctx, 'commit_url', 'https://github.com/'// &
+                               trim(config%repo)//'/commit/'//trim(branch%commit))
         call add_template_value(ctx, 'workflow_url', 'https://github.com/'// &
                                trim(config%repo)//'/actions/runs/'//trim(branch%run_id))
         call add_template_value(ctx, 'workflow_label', workflow_label)
