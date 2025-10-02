@@ -178,7 +178,7 @@ contains
                 if (index(line, 'href="../../index.html"') > 0) then
                     link_ok = .true.
                 end if
-                if (index(line, 'img { max-width: 100%; }') > 0) then
+                if (index(line, 'img { width: min(100%, 320px); }') > 0) then
                     style_ok = .true.
                 end if
                 if (link_ok .and. style_ok) exit

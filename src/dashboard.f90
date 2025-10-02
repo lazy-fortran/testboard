@@ -239,15 +239,17 @@ contains
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'figcaption { word-break: break-word; }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { max-width: 100%; }')
+        call append_line(extra_style, 'img { width: min(100%, 320px); }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { width: auto; height: auto; }')
-        call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { border: 1px solid #ccd; }')
+        call append_line(extra_style, 'img { height: auto; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img { max-height: 320px; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img { object-fit: contain; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, 'img { image-rendering: pixelated; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, 'img { border: 1px solid #ccd; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }')
         call append_line(extra_style, new_line('a'))
@@ -391,11 +393,6 @@ contains
         lowered = trim(to_lower_ascii(path))
 
         if (len_trim(lowered) == 0) then
-            skip = .true.
-            return
-        end if
-
-        if (index(lowered, '.ds_store') > 0) then
             skip = .true.
             return
         end if
