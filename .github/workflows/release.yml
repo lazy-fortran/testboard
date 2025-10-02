@@ -9,86 +9,67 @@ permissions:
   contents: write
 
 jobs:
-  build-alpine-static:
+  build:
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - arch: x86_64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             fpm_url: https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
           - arch: aarch64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
             fpm_url: https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-aarch64-gcc-12
-    name: Build static binary for ${{ matrix.arch }}
+    name: Build binary for ${{ matrix.arch }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build static binary in Alpine container
+      - name: Install dependencies
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
-            -w /workspace \
-            alpine:latest \
-            sh -c '
-              set -e
+          sudo apt-get update
+          sudo apt-get install -y gfortran make
 
-              # Install build dependencies
-              apk add --no-cache gfortran make curl wget git
-
-              # Install fpm (download binary for x86_64, build from source for aarch64)
-              if [ "${{ matrix.arch }}" = "x86_64" ]; then
-                wget -q ${{ matrix.fpm_url }}
-                chmod +x fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12
-                mv fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12 /usr/local/bin/fpm
-              else
-                # Build fpm from source for aarch64
-                git clone --depth 1 --branch v0.12.0 https://github.com/fortran-lang/fpm.git fpm-src
-                cd fpm-src
-                ./install.sh
-                cd ..
-                rm -rf fpm-src
-              fi
-
-              # Generate embedded templates
-              make templates
-
-              # Build with static linking
-              fpm build --flag "-static -static-libgfortran -static-libgcc" --verbose
-
-              # Verify the binary is static
-              ldd build/gfortran_*/app/testboard 2>&1 | grep -q "not a dynamic executable" || {
-                echo "Warning: Binary may not be fully static"
-                ldd build/gfortran_*/app/testboard || true
-              }
-
-              # Copy binary to predictable location
-              cp build/gfortran_*/app/testboard testboard-static-${{ matrix.arch }}
-
-              # Test the binary runs
-              ./testboard-static-${{ matrix.arch }} --help
-
-              # Get Alpine version for documentation
-              cat /etc/alpine-release > alpine-version-${{ matrix.arch }}.txt
-            '
-
-      - name: Generate checksum
+      - name: Install fpm
         run: |
-          sha256sum testboard-static-${{ matrix.arch }} > testboard-static-${{ matrix.arch }}.sha256
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            wget -q ${{ matrix.fpm_url }}
+            chmod +x fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12
+            sudo mv fpm-0.12.0-linux-${{ matrix.arch }}-gcc-12 /usr/local/bin/fpm
+          else
+            # Build fpm from source for aarch64
+            git clone --depth 1 --branch v0.12.0 https://github.com/fortran-lang/fpm.git
+            cd fpm
+            ./install.sh
+            cd ..
+            rm -rf fpm
+          fi
+
+      - name: Generate embedded templates
+        run: make templates
+
+      - name: Build testboard
+        run: fpm build
+
+      - name: Test binary
+        run: fpm run testboard -- --help
+
+      - name: Package binary
+        run: |
+          cp build/gfortran_*/app/testboard testboard-${{ matrix.arch }}
+          sha256sum testboard-${{ matrix.arch }} > testboard-${{ matrix.arch }}.sha256
 
       - name: Upload binary as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: testboard-static-${{ matrix.arch }}-linux
+          name: testboard-${{ matrix.arch }}-linux
           path: |
-            testboard-static-${{ matrix.arch }}
-            testboard-static-${{ matrix.arch }}.sha256
-            alpine-version-${{ matrix.arch }}.txt
+            testboard-${{ matrix.arch }}
+            testboard-${{ matrix.arch }}.sha256
 
   create-release:
-    needs: build-alpine-static
+    needs: build
     runs-on: ubuntu-latest
     name: Create GitHub Release
 
@@ -99,37 +80,30 @@ jobs:
       - name: Download x86_64 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: testboard-static-x86_64-linux
+          name: testboard-x86_64-linux
 
       - name: Download aarch64 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: testboard-static-aarch64-linux
+          name: testboard-aarch64-linux
 
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Extract version from tag
           VERSION="${{ github.ref_name }}"
 
-          # Get Alpine version from build artifacts (should be same for both)
-          ALPINE_VERSION=$(cat alpine-version-x86_64.txt)
-
-          # Create release notes
           cat > release_notes.md << EOF
           # TestBoard ${VERSION}
 
-          ## Static Binaries for Linux
+          ## Binaries for Linux
 
-          This release includes fully static binaries built on Alpine Linux (musl libc) for multiple architectures.
+          This release includes binaries for x86_64 and aarch64 Linux systems.
 
           **Build Information:**
-          - Alpine Version: ${ALPINE_VERSION}
-          - Compiler: gfortran (musl-based)
-          - Linking: Static (libgfortran, libgcc, libm, libquadmath)
-          - x86_64: Built on GitHub Actions ubuntu-latest
-          - aarch64: Built natively on GitHub Actions ubuntu-24.04-arm
+          - Built on Ubuntu 22.04 (glibc 2.35)
+          - Compiler: gfortran
+          - Compatible with glibc ≥ 2.35
 
           **Available Architectures:**
           - x86_64 (amd64)
@@ -139,20 +113,20 @@ jobs:
 
           For x86_64:
           \`\`\`bash
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-x86_64
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-x86_64.sha256
-          sha256sum -c testboard-static-x86_64.sha256
-          chmod +x testboard-static-x86_64
-          ./testboard-static-x86_64 --help
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-x86_64
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-x86_64.sha256
+          sha256sum -c testboard-x86_64.sha256
+          chmod +x testboard-x86_64
+          ./testboard-x86_64 --help
           \`\`\`
 
           For aarch64:
           \`\`\`bash
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-aarch64
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-static-aarch64.sha256
-          sha256sum -c testboard-static-aarch64.sha256
-          chmod +x testboard-static-aarch64
-          ./testboard-static-aarch64 --help
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-aarch64
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${VERSION}/testboard-aarch64.sha256
+          sha256sum -c testboard-aarch64.sha256
+          chmod +x testboard-aarch64
+          ./testboard-aarch64 --help
           \`\`\`
 
           **Building from source:**
@@ -166,11 +140,10 @@ jobs:
           \`\`\`
           EOF
 
-          # Create release with binaries
           gh release create "${{ github.ref_name }}" \
-            testboard-static-x86_64 \
-            testboard-static-x86_64.sha256 \
-            testboard-static-aarch64 \
-            testboard-static-aarch64.sha256 \
+            testboard-x86_64 \
+            testboard-x86_64.sha256 \
+            testboard-aarch64 \
+            testboard-aarch64.sha256 \
             --title "Release ${{ github.ref_name }}" \
             --notes-file release_notes.md
