@@ -19,11 +19,8 @@ Live dashboard: https://lazy-fortran.github.io/testboard/test/
 ## Quick Start
 
 ```bash
-# Build the CLI
-fpm build
-
 # Generate a dashboard from local artifacts
-fpm run testboard -- \
+fpm run -- \
   --image-root ./image-artifacts \
   --output ./dashboard \
   --branch main \
@@ -66,19 +63,16 @@ jobs:
         with:
           repository: lazy-fortran/testboard
           path: testboard
-      - name: Build testboard
-        run: cd testboard && fpm build
       - uses: actions/download-artifact@v4
         with:
           name: test-images
           path: image-artifacts
-      - name: Generate dashboard
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build + run testboard
         run: |
-          testboard/build/gfortran_*/app/testboard \
-            --image-root image-artifacts \
-            --output dashboard \
+          cd testboard
+          fpm run -- \
+            --image-root ../image-artifacts \
+            --output ../dashboard \
             --branch "${{ github.ref_name }}" \
             --commit "${{ github.sha }}" \
             --run-id "${{ github.run_id }}" \
