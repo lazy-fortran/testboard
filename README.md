@@ -16,12 +16,39 @@ Live dashboard: https://lazy-fortran.github.io/testboard/test/
 - Tracks history for every branch and pull request
 - Self-hosted: the project publishes its own dashboard as proof
 
+## Installation
+
+### Download Pre-built Binary (Recommended)
+
+```bash
+# For x86_64
+curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-x86_64
+chmod +x testboard-x86_64
+./testboard-x86_64 --help
+
+# For aarch64
+curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-aarch64
+chmod +x testboard-aarch64
+./testboard-aarch64 --help
+```
+
+Binaries are built on Ubuntu 22.04 and require glibc ≥ 2.35.
+
+### Build from Source
+
+```bash
+git clone https://github.com/lazy-fortran/testboard.git
+cd testboard
+make templates
+fpm build
+fpm run testboard -- --help
+```
+
 ## Quick Start
 
 ```bash
-# Generate embedded template module, then build dashboard from artifacts
-make templates
-fpm run -- \
+# Using pre-built binary
+./testboard-x86_64 \
   --image-root ./image-artifacts \
   --output ./dashboard \
   --branch main \
@@ -34,67 +61,88 @@ fpm run -- \
 open dashboard/test/index.html  # or xdg-open on Linux
 ```
 
-### GitHub Action snippet
+## GitHub Actions Integration
+
+### Option 1: Use Latest Release Binary (Recommended)
 
 ```yaml
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests and create images
-        run: make test
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test-images
-          path: build/test/**/*.{png,jpg,jpeg}
-
   dashboard:
-    needs: build
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/fortran-lang/fpm:latest
     permissions:
       contents: read
       pages: write
       id-token: write
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: lazy-fortran/testboard
-          path: testboard
       - uses: actions/download-artifact@v4
         with:
           name: test-images
           path: image-artifacts
-      - name: Build + run testboard
+
+      - name: Download testboard
         run: |
-          cd testboard
-          fpm run -- \
-            --image-root ../image-artifacts \
-            --output ../dashboard \
+          curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-x86_64
+          chmod +x testboard-x86_64
+
+      - name: Generate dashboard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./testboard-x86_64 \
+            --image-root image-artifacts \
+            --output dashboard \
             --branch "${{ github.ref_name }}" \
             --commit "${{ github.sha }}" \
             --run-id "${{ github.run_id }}" \
             --repo "${{ github.repository }}" \
             --project-name "${{ github.repository }}"
-      - uses: actions/configure-pages@v5
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dashboard
+```
 
-  deploy:
-    needs: dashboard
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/deploy-pages@v4
+### Option 2: Use Pinned Version
+
+Replace `latest` with a specific tag like `v2025.10.03`:
+
+```yaml
+- name: Download testboard
+  run: |
+    curl -LO https://github.com/lazy-fortran/testboard/releases/download/v2025.10.03/testboard-x86_64
+    chmod +x testboard-x86_64
+```
+
+### Option 3: Build from Source
+
+```yaml
+- name: Install dependencies
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y gfortran make
+    wget -q https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
+    chmod +x fpm-0.12.0-linux-x86_64-gcc-12
+    sudo mv fpm-0.12.0-linux-x86_64-gcc-12 /usr/local/bin/fpm
+
+- name: Checkout testboard
+  uses: actions/checkout@v4
+  with:
+    repository: lazy-fortran/testboard
+    path: testboard
+
+- name: Build and run testboard
+  run: |
+    cd testboard
+    make templates
+    fpm run testboard -- \
+      --image-root ../image-artifacts \
+      --output ../dashboard \
+      --branch "${{ github.ref_name }}" \
+      --commit "${{ github.sha }}" \
+      --run-id "${{ github.run_id }}" \
+      --repo "${{ github.repository }}" \
+      --project-name "${{ github.repository }}"
 ```
 
 ## Command Line Options
