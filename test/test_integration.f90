@@ -29,7 +29,7 @@ contains
     num_tests = num_tests + 1
 
     ! Setup test config
-    config%png_root = 'test_artifacts'
+    config%image_root = 'test_artifacts'
     config%output_dir = 'test_output'
     config%branch_name = 'test-branch'
     config%commit_sha = 'abc123def456'
@@ -37,8 +37,8 @@ contains
     config%repo = 'test-org/test-repo'
     config%project_name = 'Test Project'
 
-    ! Create mock PNG directory (empty for this test)
-    call create_directory(config%png_root, success)
+    ! Create mock image directory (empty for this test)
+    call create_directory(config%image_root, success)
 
     ! Generate dashboard
     call generate_dashboard(config, success)
@@ -58,7 +58,7 @@ contains
     end if
 
     ! Cleanup
-    call remove_directory(config%png_root, success)
+    call remove_directory(config%image_root, success)
     call remove_directory(config%output_dir, success)
   end subroutine test_dashboard_generation
 
@@ -69,12 +69,12 @@ contains
     num_tests = num_tests + 1
 
     ! Setup test config
-    config%png_root = 'test_artifacts'
+    config%image_root = 'test_artifacts'
     config%output_dir = 'test_output'
     config%repo = 'test-org/test-repo'
     config%project_name = 'Test Project'
 
-    call create_directory(config%png_root, success)
+    call create_directory(config%image_root, success)
 
     ! Generate dashboard for branch 1
     config%branch_name = 'main'
@@ -100,7 +100,7 @@ contains
     end if
 
     ! Cleanup
-    call remove_directory(config%png_root, success)
+    call remove_directory(config%image_root, success)
     call remove_directory(config%output_dir, success)
   end subroutine test_multiple_branches
 
