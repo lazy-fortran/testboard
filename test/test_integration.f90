@@ -5,6 +5,30 @@ program test_integration
     implicit none
 
     integer :: num_tests, num_passed
+    integer, parameter :: basic_png_bytes(68) = [integer :: &
+                                                 137, 80, 78, 71, 13, 10, 26, 10, &
+                                                 0, 0, 0, 13, 73, 72, 68, 82, &
+                                                 0, 0, 0, 1, 0, 0, 0, 1, &
+                                                 8, 4, 0, 0, 0, 181, 28, 12, &
+                                                 2, 0, 0, 0, 11, 73, 68, 65, &
+                                                 84, 120, 218, 99, 252, 255, 31, 0, &
+                                                 3, 3, 2, 0, 238, 103, 208, 90, &
+                                                 0, 0, 0, 0, 73, 69, 78, 68, &
+                                                 174, 66, 96, 130]
+    integer, parameter :: fancy_png_bytes(104) = [integer :: &
+                                                  137, 80, 78, 71, 13, 10, 26, 10, &
+                                                  0, 0, 0, 13, 73, 72, 68, 82, &
+                                                  0, 0, 0, 32, 0, 0, 0, 32, &
+                                                  8, 6, 0, 0, 0, 115, 122, 122, &
+                                                  244, 0, 0, 0, 47, 73, 68, 65, &
+                                                  84, 120, 156, 237, 206, 49, 1, 0, &
+                                                  48, 12, 128, 48, 54, 255, 158, 91, &
+                                                  25, 125, 130, 1, 242, 166, 166, 195, &
+                                                  254, 229, 28, 0, 0, 0, 0, 0, &
+                                                  0, 0, 0, 0, 0, 0, 0, 0, &
+                                                  0, 160, 106, 1, 48, 227, 2, 62, &
+                                                  54, 153, 94, 177, 0, 0, 0, 0, &
+                                                  73, 69, 78, 68, 174, 66, 96, 130]
     logical :: success
 
     num_tests = 0
@@ -129,8 +153,10 @@ contains
         call create_directory(trim(config%image_root)//'/basic', run_success)
         call create_directory(trim(config%image_root)//'/fancy', run_success)
 
-        call write_dummy_file(trim(config%image_root)//'/basic/chart.png')
-        call write_dummy_file(trim(config%image_root)//'/fancy/chart.PNG')
+        call write_png_fixture(trim(config%image_root)//'/basic/chart.png', &
+                               basic_png_bytes)
+        call write_png_fixture(trim(config%image_root)//'/fancy/chart.PNG', &
+                               fancy_png_bytes)
 
         call generate_dashboard(config, run_success)
 
@@ -171,15 +197,23 @@ contains
         call remove_directory(config%output_dir, run_success)
     end subroutine test_nested_branch_gallery
 
-    subroutine write_dummy_file(path)
+    subroutine write_png_fixture(path, data)
         character(len=*), intent(in) :: path
-        integer :: unit, ios
+        integer, intent(in) :: data(:)
+        integer :: unit, ios, i
+        character(len=1) :: ch
 
-        open (newunit=unit, file=trim(path), status='replace', &
-              action='write', iostat=ios)
+        open (newunit=unit, file=trim(path), status='replace', access='stream', &
+              form='unformatted', action='write', iostat=ios)
         if (ios /= 0) return
-        write (unit, '(A)') 'PNG'
+
+        do i = 1, size(data)
+            ch = achar(data(i))
+            write (unit, iostat=ios) ch
+            if (ios /= 0) exit
+        end do
+
         close (unit)
-    end subroutine write_dummy_file
+    end subroutine write_png_fixture
 
 end program test_integration

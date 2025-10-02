@@ -110,6 +110,7 @@ contains
 
             if (len_trim(rel_path) == 0) cycle
             if (skip_basic_image(rel_path)) cycle
+            if (is_tiny_image(trim(files%items(i)))) cycle
 
             dest_path = trim(dest_root)//'/'//trim(rel_path)
             dest_dir = get_parent_directory(dest_path)
@@ -225,7 +226,7 @@ contains
         call append_line(extra_style, '.gallery { display: grid; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'grid-template-columns: repeat(auto-fill, ')
-        call append_line(extra_style, 'minmax(320px, 1fr));')
+        call append_line(extra_style, 'minmax(220px, 1fr));')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'gap: 1.5rem; }')
         call append_line(extra_style, new_line('a'))
@@ -243,15 +244,17 @@ contains
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img { border: 1px solid #ccd; }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img { box-shadow: 0 2px 4px rgba(0,0,0,0.1);')
-        call append_line(extra_style, ' }')
+        call append_line(extra_style, 'img { max-height: 320px; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, 'img { object-fit: contain; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, 'img { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img { transition: box-shadow 0.2s,')
         call append_line(extra_style, ' transform 0.2s; }')
         call append_line(extra_style, new_line('a'))
-        call append_line(extra_style, 'img:hover { box-shadow: 0 4px 8px ')
-        call append_line(extra_style, 'rgba(0,0,0,0.2);')
-        call append_line(extra_style, ' }')
+        call append_line(extra_style, 'img:hover { box-shadow: 0 4px 8px')
+        call append_line(extra_style, ' rgba(0,0,0,0.2); }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'img:hover { transform: scale(1.02); }')
         call append_line(extra_style, new_line('a'))
