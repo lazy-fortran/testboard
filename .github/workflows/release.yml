@@ -10,15 +10,15 @@ permissions:
 
 jobs:
   build-alpine-static:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - arch: x86_64
-            platform: linux/amd64
+            runner: ubuntu-latest
             fpm_url: https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
           - arch: aarch64
-            platform: linux/arm64
+            runner: ubuntu-24.04-arm
             fpm_url: https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-aarch64-gcc-12
     name: Build static binary for ${{ matrix.arch }}
 
@@ -26,12 +26,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU for cross-platform builds
-        uses: docker/setup-qemu-action@v3
-
       - name: Build static binary in Alpine container
         run: |
-          docker run --rm --platform ${{ matrix.platform }} \
+          docker run --rm \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
             alpine:latest \
@@ -62,7 +59,10 @@ jobs:
               cp build/gfortran_*/app/testboard testboard-static-${{ matrix.arch }}
 
               # Test the binary runs
-              ./testboard-static-${{ matrix.arch }} --help || echo "Binary help check completed"
+              ./testboard-static-${{ matrix.arch }} --help
+
+              # Get Alpine version for documentation
+              cat /etc/alpine-release > alpine-version-${{ matrix.arch }}.txt
             '
 
       - name: Generate checksum
@@ -76,6 +76,7 @@ jobs:
           path: |
             testboard-static-${{ matrix.arch }}
             testboard-static-${{ matrix.arch }}.sha256
+            alpine-version-${{ matrix.arch }}.txt
 
   create-release:
     needs: build-alpine-static
@@ -83,6 +84,9 @@ jobs:
     name: Create GitHub Release
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download x86_64 artifacts
         uses: actions/download-artifact@v4
         with:
@@ -100,8 +104,8 @@ jobs:
           # Extract version from tag
           VERSION="${{ github.ref_name }}"
 
-          # Get Alpine version used
-          ALPINE_VERSION=$(docker run --rm alpine:latest cat /etc/alpine-release)
+          # Get Alpine version from build artifacts (should be same for both)
+          ALPINE_VERSION=$(cat alpine-version-x86_64.txt)
 
           # Create release notes
           cat > release_notes.md << EOF
@@ -115,6 +119,8 @@ jobs:
           - Alpine Version: ${ALPINE_VERSION}
           - Compiler: gfortran (musl-based)
           - Linking: Static (libgfortran, libgcc, libm, libquadmath)
+          - x86_64: Built on GitHub Actions ubuntu-latest
+          - aarch64: Built natively on GitHub Actions ubuntu-24.04-arm
 
           **Available Architectures:**
           - x86_64 (amd64)
