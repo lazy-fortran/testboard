@@ -19,7 +19,8 @@ Live dashboard: https://lazy-fortran.github.io/testboard/test/
 ## Quick Start
 
 ```bash
-# Generate a dashboard from local artifacts
+# Generate embedded template module, then build dashboard from artifacts
+make templates
 fpm run -- \
   --image-root ./image-artifacts \
   --output ./dashboard \
@@ -114,6 +115,7 @@ Supported formats: PNG (`.png`), JPEG (`.jpg`, `.jpeg`).
 
 ## Requirements
 
+- make (GNU Make or compatible)
 - fpm (Fortran Package Manager)
 - A modern Fortran compiler (gfortran 8+ tested)
 - gh CLI (optional, for metadata lookups)
@@ -121,6 +123,7 @@ Supported formats: PNG (`.png`), JPEG (`.jpg`, `.jpeg`).
 ## Development
 
 ```bash
+make templates
 fpm build   # compile
 fpm test    # unit + integration tests
 ```

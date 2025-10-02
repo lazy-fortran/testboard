@@ -39,6 +39,7 @@ def main() -> int:
     if len(sys.argv) != 3:
         print('usage: embed_templates.py <template-dir> <output-file>', file=sys.stderr)
         return 1
+
     template_dir = Path(sys.argv[1])
     output_path = Path(sys.argv[2])
     if not template_dir.is_dir():
