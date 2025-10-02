@@ -16,10 +16,10 @@ program testboard_app
     call get_command_argument(i, arg)
 
     select case(trim(arg))
-      case('--png-root')
+      case('--png-root', '--image-root')
         i = i + 1
         call get_command_argument(i, value)
-        config%png_root = trim(value)
+        config%image_root = trim(value)
 
       case('--output')
         i = i + 1
@@ -122,7 +122,8 @@ contains
     print *, '  --repo OWNER/REPO      Repository in owner/repo format'
     print *, ''
     print *, 'Optional:'
-    print *, '  --png-root DIR         PNG artifacts directory (default: png-artifacts)'
+    print *, '  --image-root DIR       Image artifacts directory (default: image-artifacts)'
+    print *, '  --png-root DIR         Alias for --image-root (for backward compatibility)'
     print *, '  --output DIR           Output directory (default: dashboard)'
     print *, '  --project-name NAME    Project display name (default: Test Dashboard)'
     print *, '  --github-pages-url URL Base URL for GitHub Pages'

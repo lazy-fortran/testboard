@@ -5,7 +5,7 @@ module file_utils
   private
 
   public :: copy_file, create_directory, directory_exists, file_exists
-  public :: find_files, remove_directory
+  public :: find_files, find_image_files, remove_directory
 
 contains
 
@@ -98,6 +98,35 @@ contains
       close(unit, status='delete')
     end if
   end subroutine find_files
+
+  subroutine find_image_files(root_dir, files)
+    !! Find all image files (PNG, JPG, JPEG) recursively
+    character(len=*), intent(in) :: root_dir
+    type(string_array), intent(out) :: files
+    type(string_array) :: png_files, jpg_files, jpeg_files
+    integer :: i
+
+    ! Find all PNG files
+    call find_files(root_dir, '*.png', png_files)
+
+    ! Find all JPG files
+    call find_files(root_dir, '*.jpg', jpg_files)
+
+    ! Find all JPEG files
+    call find_files(root_dir, '*.jpeg', jpeg_files)
+
+    ! Combine all results
+    files%count = 0
+    do i = 1, png_files%count
+      call append_string(files, png_files%items(i))
+    end do
+    do i = 1, jpg_files%count
+      call append_string(files, jpg_files%items(i))
+    end do
+    do i = 1, jpeg_files%count
+      call append_string(files, jpeg_files%items(i))
+    end do
+  end subroutine find_image_files
 
   function str_random() result(s)
     !! Generate random string for temp files

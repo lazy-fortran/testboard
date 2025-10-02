@@ -12,7 +12,7 @@ module dashboard
   public :: generate_dashboard, dashboard_config
 
   type :: dashboard_config
-    character(len=512) :: png_root = 'png-artifacts'
+    character(len=512) :: image_root = 'image-artifacts'
     character(len=512) :: output_dir = 'dashboard'
     character(len=256) :: branch_name = ''
     character(len=64) :: commit_sha = ''
@@ -28,7 +28,7 @@ contains
     !! Generate complete dashboard from configuration
     type(dashboard_config), intent(in) :: config
     logical, intent(out) :: success
-    type(string_array) :: png_files
+    type(string_array) :: image_files
     type(branch_metadata) :: current_branch, all_branches(100)
     integer :: n_branches
     character(len=512) :: test_root, branch_path, images_path
@@ -50,9 +50,9 @@ contains
       return
     end if
 
-    ! Copy PNG files
-    call find_files(config%png_root, '*.png', png_files)
-    call copy_png_files(config%png_root, images_path, png_files)
+    ! Copy image files (PNG, JPG, JPEG)
+    call find_image_files(config%image_root, image_files)
+    call copy_image_files(config%image_root, images_path, image_files)
 
     ! Get current timestamp and PR info
     timestamp = get_iso8601_timestamp()
@@ -61,12 +61,12 @@ contains
     current_branch%timestamp = timestamp
     current_branch%run_id = config%run_id
     current_branch%repo = config%repo
-    current_branch%has_pngs = (png_files%count > 0)
+    current_branch%has_pngs = (image_files%count > 0)
 
     call get_pr_info(config%branch_name, config%repo, current_branch, stat)
 
     ! Generate branch page
-    gallery_html = build_gallery(png_files)
+    gallery_html = build_gallery(image_files)
     branch_html = build_branch_page(config, current_branch, gallery_html)
 
     branch_html_file = trim(branch_path) // '/index.html'
@@ -90,8 +90,8 @@ contains
     success = .true.
   end subroutine generate_dashboard
 
-  subroutine copy_png_files(src_root, dest_root, files)
-    !! Copy PNG files preserving directory structure
+  subroutine copy_image_files(src_root, dest_root, files)
+    !! Copy image files preserving directory structure
     character(len=*), intent(in) :: src_root, dest_root
     type(string_array), intent(in) :: files
     integer :: i
@@ -101,7 +101,7 @@ contains
       call copy_file(trim(files%items(i)), &
                      trim(dest_root) // '/' // trim(basename(files%items(i))), stat)
     end do
-  end subroutine copy_png_files
+  end subroutine copy_image_files
 
   function basename(path) result(name)
     !! Extract filename from path
@@ -125,7 +125,7 @@ contains
     character(len=512) :: rel_path
 
     if (files%count == 0) then
-      html = '<p>No PNG outputs were produced for this run.</p>'
+      html = '<p>No image outputs were produced for this run.</p>'
       return
     end if
 

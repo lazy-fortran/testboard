@@ -13,7 +13,7 @@ A **Fortran-powered** test dashboard generator for GitHub Actions. Automatically
 - 🎨 **Beautiful HTML dashboards** with responsive grid layouts
 - 🔄 **Multi-branch support** - tracks test results for all branches
 - 🔗 **GitHub integration** - automatically links to PRs, commits, and workflow runs
-- 📸 **Image galleries** - displays PNG test outputs in an organized grid
+- 📸 **Image galleries** - displays PNG and JPG test outputs in an organized grid
 - 💾 **Persistent history** - preserves previous branch results across runs
 - 🎯 **Self-hosted** - testboard uses itself to display its own test dashboard!
 
@@ -29,12 +29,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests and generate PNGs
+      - name: Run tests and generate images
         run: make test
       - uses: actions/upload-artifact@v4
         with:
           name: test-plots
-          path: build/test/**/*.png
+          path: |
+            build/test/**/*.png
+            build/test/**/*.jpg
+            build/test/**/*.jpeg
 
   dashboard:
     needs: test
@@ -58,7 +61,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: test-plots
-          path: png-artifacts
+          path: image-artifacts
 
       - name: Restore previous dashboard
         run: |
@@ -72,7 +75,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           testboard/build/gfortran_*/app/testboard \
-            --png-root png-artifacts \
+            --image-root image-artifacts \
             --output dashboard \
             --branch "${{ github.ref_name }}" \
             --commit "${{ github.sha }}" \
@@ -106,7 +109,7 @@ fpm build
 
 # Generate dashboard
 fpm run testboard -- \
-  --png-root ./test_output \
+  --image-root ./test_output \
   --output ./dashboard \
   --branch main \
   --commit abc123def456 \
@@ -150,7 +153,8 @@ Test suite includes:
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--png-root DIR` | No | PNG artifacts directory (default: `png-artifacts`) |
+| `--image-root DIR` | No | Image artifacts directory (default: `image-artifacts`) |
+| `--png-root DIR` | No | Alias for `--image-root` (backward compatibility) |
 | `--output DIR` | No | Output directory (default: `dashboard`) |
 | `--branch NAME` | **Yes** | Branch name |
 | `--commit SHA` | **Yes** | Commit SHA |
@@ -159,6 +163,12 @@ Test suite includes:
 | `--project-name NAME` | No | Project display name (default: `Test Dashboard`) |
 | `--github-pages-url URL` | No | Base URL for GitHub Pages |
 | `--help, -h` | No | Show help message |
+
+### Supported Image Formats
+
+testboard supports the following image formats:
+- PNG (`.png`)
+- JPEG (`.jpg`, `.jpeg`)
 
 ## 🎯 Design Goals
 
