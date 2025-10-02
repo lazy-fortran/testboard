@@ -18,7 +18,7 @@ module dashboard
         character(len=64) :: commit_sha = ''
         character(len=64) :: run_id = ''
         character(len=256) :: repo = ''
-        character(len=256) :: project_name = 'Test Dashboard'
+        character(len=256) :: project_name = 'testboard'
         character(len=512) :: github_pages_url = ''
     end type dashboard_config
 
@@ -201,9 +201,13 @@ contains
         back_href = repeat('../', depth)//'index.html'
 
         ! Build body content
-        body = '<a href="'//trim(back_href)//'" class="back-link">'// &
-               '← Back to all branches</a>'
-        body = body//'<h1>Test Dashboard – '// &
+        body = '<nav class="site-nav">'
+        body = body//'<a href="'//trim(back_href)//'" class="back-link">'// &
+               'All branches</a>'
+        body = body//'<a href="https://github.com/lazy-fortran/testboard/"'// &
+               ' class="repo-link">GitHub</a>'
+        body = body//'</nav>'
+        body = body//'<h1>testboard – '// &
                html_escape(branch%branch_name)//'</h1>'
         body = body//'<div class="meta">'
         body = body//'<p><strong>Branch:</strong> '// &
@@ -218,8 +222,18 @@ contains
         body = body//trim(branch%run_id)//'</a></p>'
         body = body//'<p><strong>Generated:</strong> '// &
                html_escape(branch%timestamp)//'</p>'
+        body = body//'<p><a class="repo-link" href="https://github.com/lazy-fortran/testboard/">'// &
+               'testboard repository</a></p>'
         body = body//'</div>'//gallery
 
+        call append_line(extra_style, '.site-nav { display: flex; gap: 1rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-nav { align-items: center; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-nav { margin-bottom: 1rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-nav a { font-weight: 600; }')
+        call append_line(extra_style, new_line('a'))
         call append_line(extra_style, '.meta { margin-bottom: 1.5rem; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, '.gallery { display: grid; }')
@@ -297,9 +311,13 @@ contains
             rows = '<tr><td colspan="5">No branch dashboards published yet.</td></tr>'
         end if
 
-        body = '<h1>Test Dashboards</h1>'
-        body = body//'<p class="subtitle">Automated test artifacts for all branches '
-        body = body//'and pull requests</p>'
+        body = '<nav class="site-nav">'
+        body = body//'<a href="https://github.com/lazy-fortran/testboard/"'// &
+               ' class="repo-link">GitHub</a>'
+        body = body//'</nav>'
+        body = body//'<h1>testboard dashboards</h1>'
+        body = body//'<p class="subtitle">Automated test artifacts for all '
+        body = body//'branches and pull requests</p>'
         body = body//'<p>Generated: '//html_escape(timestamp)//'</p>'
         body = body//'<table><thead><tr>'
         body = body//'<th>Branch</th><th>Updated (UTC)</th><th>Commit</th>'// &
@@ -307,6 +325,14 @@ contains
         body = body//'</tr></thead><tbody>'//rows//'</tbody></table>'
 
         extra_style = ''
+        call append_line(extra_style, '.site-nav { display: flex; gap: 1rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-nav { align-items: center; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-nav { margin-bottom: 1rem; }')
+        call append_line(extra_style, new_line('a'))
+        call append_line(extra_style, '.site-nav a { font-weight: 600; }')
+        call append_line(extra_style, new_line('a'))
         call append_line(extra_style, 'h1 { margin-bottom: 0.5rem; }')
         call append_line(extra_style, new_line('a'))
         call append_line(extra_style, '.subtitle { color: #586069; }')
@@ -470,11 +496,13 @@ contains
         character(len=:), allocatable :: html, body
         character(len=512) :: filepath
 
-        body = '<h1>'//html_escape(config%project_name)//' GitHub Pages</h1>'
+        body = '<h1>'//html_escape(config%project_name)//'</h1>'
         body = body//'<p>This site hosts automatically generated test dashboards.</p>'
         body = body//'<p>You will be redirected to <a href="./test/">/test/</a> '// &
                'momentarily.</p>'
         body = body//'<p>Generated: '//html_escape(timestamp)//'</p>'
+        body = body//'<p><a href="https://github.com/lazy-fortran/testboard/">'// &
+               'testboard repository</a></p>'
 
         html = '<!DOCTYPE html>'//new_line('a')// &
                '<html lang="en">'//new_line('a')// &
