@@ -1,6 +1,12 @@
 name: Build, Test, and Deploy Dashboard
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -106,7 +112,6 @@ jobs:
           path: image-artifacts
 
       - name: Restore previously published site
-        if: ${{ github.event_name == 'push' }}
         run: |
           set -euo pipefail
           rm -rf dashboard
@@ -132,12 +137,16 @@ jobs:
       - name: Generate dashboard
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
+          GITHUB_PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
+          GITHUB_PR_TITLE: ${{ github.event_name == 'pull_request' && github.event.pull_request.title || '' }}
+          GITHUB_PR_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft || '' }}
         run: |
           set -euo pipefail
           fpm run testboard -- \
             --image-root image-artifacts \
             --output dashboard \
-            --branch "${{ github.ref_name }}" \
+            --branch "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}" \
             --commit "${{ github.sha }}" \
             --run-id "${{ github.run_id }}" \
             --repo "${{ github.repository }}" \
@@ -148,14 +157,12 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Upload dashboard artifact
-        if: ${{ github.event_name == 'push' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: './dashboard'
 
   deploy:
     name: Deploy to GitHub Pages
-    if: github.event_name == 'push'
     needs: dashboard
     runs-on: ubuntu-latest
     permissions:
