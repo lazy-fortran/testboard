@@ -154,7 +154,6 @@ Test suite includes:
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--image-root DIR` | No | Image artifacts directory (default: `image-artifacts`) |
-| `--png-root DIR` | No | Alias for `--image-root` (backward compatibility) |
 | `--output DIR` | No | Output directory (default: `dashboard`) |
 | `--branch NAME` | **Yes** | Branch name |
 | `--commit SHA` | **Yes** | Commit SHA |
