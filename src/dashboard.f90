@@ -10,6 +10,7 @@ module dashboard
     use datetime_utils
     use template_engine
     use embedded_templates, only: get_embedded_template
+    use site_sync, only: bootstrap_existing_site
     implicit none
     private
 
@@ -67,6 +68,13 @@ contains
         branch_path = trim(test_root)//'/'//trim(config%branch_name)
         images_path = trim(branch_path)//'/images'
         base_images_path = trim(test_root)//'/'//trim(config%base_branch)//'/images'
+        metadata_file = trim(test_root)//'/branches.json'
+
+        call create_directory(test_root, stat)
+        if (.not. stat) return
+
+        call bootstrap_existing_site(config%github_pages_url, config%output_dir, &
+             config%branch_name, metadata_file)
 
         call create_directory(images_path, stat)
         if (.not. stat) then
@@ -113,7 +121,6 @@ contains
         if (.not. stat) return
 
         ! Update metadata
-        metadata_file = trim(test_root)//'/branches.json'
         call update_metadata(metadata_file, current_branch, all_branches, n_branches)
 
         ! Clean up closed PRs
