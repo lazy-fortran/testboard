@@ -7,8 +7,6 @@
     body { font-family: Arial, sans-serif; margin: 2rem; }
     a { color: #0366d6; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    code { font-family: Consolas, Monaco, monospace; background: #f6f8fa; padding: 2px 4px;
-      border-radius: 3px; }
     .site-nav { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
     .site-nav a { font-weight: 600; }
     .diff-link { margin-left: auto; font-weight: 600; }
@@ -44,7 +42,7 @@
 <div class="meta">
   <p><strong>Reference:</strong> {{branch_name}}</p>
   {{pr_section}}
-  <p><strong>Commit:</strong> <code><a href="{{commit_url}}">{{commit_sha}}</a></code></p>
+  <p><strong>Commit:</strong> <a href="{{commit_url}}">{{commit_sha}}</a></p>
   <p><strong>Workflow run:</strong> <a href="{{workflow_url}}">{{workflow_label}}</a></p>
   <p><strong>Generated:</strong> {{generated_at}}</p>
   {{diff_summary}}
