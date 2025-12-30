@@ -1,5 +1,7 @@
 # testboard
 
+> **Note**: This project is experimental and subject to major changes. APIs may change without notice.
+
 Fortran-powered dashboard generator for GitHub Actions. testboard collects image
 artifacts from CI runs, builds responsive HTML reports, and publishes them to
 GitHub Pages with minimal configuration.
