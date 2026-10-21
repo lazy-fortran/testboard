@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch == 'aarch64' && fromJSON('["self-hosted","Linux","ARM64","itp-ubuntu22"]') || fromJSON('["self-hosted","Linux","X64","itp-ubuntu22"]') }}
     strategy:
       matrix:
         include:
@@ -70,7 +70,7 @@ jobs:
 
   create-release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, itp-ubuntu24]
     name: Create GitHub Release
 
     steps:

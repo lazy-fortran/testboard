@@ -1,6 +1,7 @@
 name: Build, Test, and Deploy Dashboard
 
 on:
+  workflow_dispatch:
   merge_group:
     types: [checks_requested]
   push:
@@ -14,12 +15,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, itp-ubuntu24]
 
     name: Build and test testboard
     steps:
@@ -78,11 +78,14 @@ jobs:
             build/test/**/*.jpeg
           if-no-files-found: warn
 
+    if: >-
+      github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor != 'github-merge-queue[bot]')
   dashboard:
     name: Build test dashboard
     needs: test
-    if: ${{ needs.test.result == 'success' }}
-    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor != 'github-merge-queue[bot]')) && (needs.test.result == 'success')
+    runs-on: [self-hosted, itp-ubuntu24]
     permissions:
       contents: read
       pages: write
@@ -143,16 +146,19 @@ jobs:
           GITHUB_PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
           GITHUB_PR_TITLE: ${{ github.event_name == 'pull_request' && github.event.pull_request.title || '' }}
           GITHUB_PR_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft || '' }}
+          DASHBOARD_BRANCH: ${{ github.event_name == 'merge_group' && github.event.repository.default_branch || github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
           fpm run testboard -- \
             --image-root image-artifacts \
             --output dashboard \
-            --branch "${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}" \
+            --branch "$DASHBOARD_BRANCH" \
             --commit "${{ github.sha }}" \
             --run-id "${{ github.run_id }}" \
             --repo "${{ github.repository }}" \
             --project-name "testboard"
+
+          python3 ci/check_dashboard_publication.py dashboard "$DASHBOARD_BRANCH" "$GITHUB_SHA" "$GITHUB_RUN_ID"
 
       - name: Configure Pages
         if: ${{ github.event_name == 'push' }}
@@ -163,10 +169,41 @@ jobs:
         with:
           path: './dashboard'
 
+  publication:
+    name: Reuse admitted dashboard for publication
+    if: >-
+      github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor == 'github-merge-queue[bot]'
+    runs-on: [self-hosted, itp-ubuntu24]
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test admitted-run attribution
+        run: python3 ci/test_publication_source.py
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/publication_source.py
+      - name: Download the exact admitted Pages bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          run-id: ${{ steps.source.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: admitted-pages
+      - name: Retain the Pages bundle in this publication run
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-pages
+          path: admitted-pages/artifact.tar
+          if-no-files-found: error
+          retention-days: 1
+
   deploy:
     name: Deploy to GitHub Pages
-    needs: dashboard
-    runs-on: ubuntu-latest
+    needs: [dashboard, publication]
+    runs-on: [self-hosted, itp-ubuntu24]
     permissions:
       contents: read
       pages: write
@@ -178,3 +215,5 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+    if: >-
+      always() && github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (needs.dashboard.result == 'success' || needs.publication.result == 'success')
