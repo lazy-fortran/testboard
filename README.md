@@ -1,187 +1,75 @@
 # testboard
 
-> **Note**: This project is experimental and subject to major changes. APIs may change without notice.
+testboard builds a static HTML dashboard from the image artifacts of a CI run
+(plots, rendered figures, visual test output) and is meant to be published on
+GitHub Pages. It is written in Fortran.
 
-Fortran-powered dashboard generator for GitHub Actions. testboard collects image
-artifacts from CI runs, builds responsive HTML reports, and publishes them to
-GitHub Pages with minimal configuration.
+Status: experimental; options and output may change.
 
-[![Build, Test, and Deploy Dashboard](https://github.com/lazy-fortran/testboard/actions/workflows/ci.yml/badge.svg)](https://github.com/lazy-fortran/testboard/actions/workflows/ci.yml)
-
-Live dashboard: https://lazy-fortran.github.io/testboard/test/
+Live dashboard of this repository: https://lazy-fortran.github.io/testboard/test/
 
 ## Features
 
-- Modern Fortran implementation with zero Python dependencies
-- Single `fpm` build step, no external tooling required
-- Responsive gallery layout with branch metadata and workflow links
-- Tracks history for every branch and pull request
-- Self-hosted: the project publishes its own dashboard as proof
+- One gallery page per branch, with commit, run and pull-request links.
+- Images that differ from the base branch are marked.
+- Earlier branch pages are kept by reading the already published site
+  (`--github-pages-url`), so the dashboard accumulates history across runs.
+- PNG and JPEG input.
+- Single static binary for x86_64 and aarch64 Linux.
 
-## Installation
+## Install
 
-### Download Pre-built Binary (Recommended)
+Download a release binary (built on Ubuntu 22.04, requires glibc 2.35 or newer):
 
 ```bash
-# For x86_64
 curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-x86_64
 chmod +x testboard-x86_64
-./testboard-x86_64 --help
-
-# For aarch64
-curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-aarch64
-chmod +x testboard-aarch64
-./testboard-aarch64 --help
 ```
 
-Binaries are built on Ubuntu 22.04 and require glibc ≥ 2.35.
-
-### Build from Source
+Replace `x86_64` with `aarch64` on ARM. To build from source you need GNU Make,
+Python 3 (to embed the HTML templates), [fpm](https://fpm.fortran-lang.org) and
+gfortran:
 
 ```bash
 git clone https://github.com/lazy-fortran/testboard.git
 cd testboard
 make templates
 fpm build
-fpm run testboard -- --help
+fpm test
 ```
 
-## Quick Start
+## Usage
 
 ```bash
-# Using pre-built binary
 ./testboard-x86_64 \
   --image-root ./image-artifacts \
   --output ./dashboard \
   --branch main \
   --commit abc123def456 \
   --run-id 1234567890 \
-  --repo "owner/repo" \
+  --repo owner/repo \
   --project-name "My Project"
-
-# Inspect the result
-open dashboard/test/index.html  # or xdg-open on Linux
 ```
 
-## GitHub Actions Integration
+The result is in `dashboard/test/index.html`. `--branch`, `--commit`, `--run-id`
+and `--repo` are required. Optional:
 
-### Option 1: Use Latest Release Binary (Recommended)
+| Option | Default | Meaning |
+|---|---|---|
+| `--image-root DIR` | `image-artifacts` | directory with the images |
+| `--output DIR` | `dashboard` | output directory |
+| `--base-branch NAME` | `main` | branch that images are compared against |
+| `--project-name NAME` | `testboard` | name shown on the dashboard |
+| `--github-pages-url URL` | none | published site to read existing pages from |
+| `--template-root DIR` | `templates` | directory with HTML templates |
 
-```yaml
-jobs:
-  dashboard:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-      pull-requests: read
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: test-images
-          path: image-artifacts
+`gh` (GitHub CLI) is used, if available, to look up pull-request metadata.
 
-      - name: Download testboard
-        run: |
-          ARCH=$(uname -m)
-          curl -LO https://github.com/lazy-fortran/testboard/releases/latest/download/testboard-${ARCH}
-          chmod +x testboard-${ARCH}
-          mv testboard-${ARCH} testboard
+## Documentation
 
-      - name: Generate dashboard
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ./testboard \
-            --image-root image-artifacts \
-            --output dashboard \
-            --branch "${{ github.ref_name }}" \
-            --commit "${{ github.sha }}" \
-            --run-id "${{ github.run_id }}" \
-            --repo "${{ github.repository }}" \
-            --project-name "${{ github.repository }}"
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dashboard
-```
-
-### Option 2: Use Pinned Version
-
-Replace `latest` with a specific tag like `v2025.10.03`:
-
-```yaml
-- name: Download testboard
-  run: |
-    ARCH=$(uname -m)
-    curl -LO https://github.com/lazy-fortran/testboard/releases/download/v2025.10.03/testboard-${ARCH}
-    chmod +x testboard-${ARCH}
-    mv testboard-${ARCH} testboard
-```
-
-### Option 3: Build from Source
-
-```yaml
-- name: Install dependencies
-  run: |
-    sudo apt-get update
-    sudo apt-get install -y gfortran make
-    wget -q https://github.com/fortran-lang/fpm/releases/download/v0.12.0/fpm-0.12.0-linux-x86_64-gcc-12
-    chmod +x fpm-0.12.0-linux-x86_64-gcc-12
-    sudo mv fpm-0.12.0-linux-x86_64-gcc-12 /usr/local/bin/fpm
-
-- name: Checkout testboard
-  uses: actions/checkout@v4
-  with:
-    repository: lazy-fortran/testboard
-    path: testboard
-
-- name: Build and run testboard
-  run: |
-    cd testboard
-    make templates
-    fpm run testboard -- \
-      --image-root ../image-artifacts \
-      --output ../dashboard \
-      --branch "${{ github.ref_name }}" \
-      --commit "${{ github.sha }}" \
-      --run-id "${{ github.run_id }}" \
-      --repo "${{ github.repository }}" \
-      --project-name "${{ github.repository }}"
-```
-
-## Command Line Options
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--image-root DIR` | No | Image artifacts directory (default: `image-artifacts`) |
-| `--output DIR` | No | Output directory (default: `dashboard`) |
-| `--branch NAME` | **Yes** | Branch name |
-| `--commit SHA` | **Yes** | Commit SHA |
-| `--run-id ID` | **Yes** | CI run identifier |
-| `--repo OWNER/REPO` | **Yes** | Repository in `owner/repo` format |
-| `--project-name NAME` | No | Project display name (default: `testboard`) |
-| `--github-pages-url URL` | No | Base URL for GitHub Pages |
-| `--help, -h` | No | Show help message |
-
-Supported formats: PNG (`.png`), JPEG (`.jpg`, `.jpeg`).
-
-## Requirements
-
-- make (GNU Make or compatible)
-- fpm (Fortran Package Manager)
-- A modern Fortran compiler (gfortran 8+ tested)
-- gh CLI (optional, for metadata lookups)
-
-## Development
-
-```bash
-make templates
-fpm build   # compile
-fpm test    # unit + integration tests
-```
+- [GitHub Actions integration](docs/github-actions.md)
+- [Example workflow](example/example-workflow.yml)
 
 ## License
 
-MIT. See LICENSE for full text.
+MIT. See [LICENSE](LICENSE).
